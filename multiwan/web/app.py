@@ -10,7 +10,8 @@ APPLY = "/usr/local/sbin/multiwan-apply.sh"
 STATE = "/var/lib/multiwan"; UPLOADS = f"{STATE}/uploads"
 USER = os.environ.get("ADMIN_USER", "admin"); PASS = os.environ.get("ADMIN_PASS", "admin")
 MACRE = re.compile(r'^([0-9a-f]{2}:){5}[0-9a-f]{2}$')
-LAN_IF = os.environ.get("LAN_IF", "")
+CONF, IFNAMES, LANSH = f"{D}/multiwan.conf", f"{D}/ifnames", "/usr/local/sbin/multiwan-lan.sh"
+IFRE = re.compile(r'^[A-Za-z0-9_.-]+$')
 
 app = Flask(__name__); app.secret_key = os.urandom(24)
 
@@ -62,8 +63,44 @@ def write_uplinks(ups):
     with open(UPL + ".tmp", "w") as f:
         for u in ups: f.write(f'{u["name"]},{u["iface"]},{u["comment"]}\n')
     os.replace(UPL + ".tmp", UPL)
+def sysconf():  # multiwan.conf يُقرأ في كل طلب (تغيير الـLAN يظهر فوراً)
+    d = {}
+    try:
+        for l in open(CONF):
+            l = l.strip()
+            if l and not l.startswith("#") and "=" in l:
+                k, v = l.split("=", 1); d[k.strip()] = v.split("#")[0].strip().strip("\"'")
+    except Exception: pass
+    return d
+def lan_if(): return sysconf().get("LAN_IF", os.environ.get("LAN_IF", ""))
+def phys_ifaces(): return sorted((i for i in os.listdir("/sys/class/net") if os.path.exists(f"/sys/class/net/{i}/device")), key=lambda x: (len(x), x))
+def proxmox_notes():  # netN → "Fiber02 VLAN121" من /etc/multiwan/ifnames
+    out = {}
+    try:
+        for l in open(IFNAMES):
+            p = l.split(None, 2)
+            if len(p) >= 2: out[p[1]] = p[2].strip() if len(p) > 2 else ""
+    except Exception: pass
+    return out
+def iface_info(dev, conf_ip=""):
+    info = {"dev": dev or "-", "conf_ip": conf_ip, "ips": [], "mac": "-", "state": "غير موجود", "rx": "-", "tx": "-", "note": proxmox_notes().get(dev, "")}
+    p = f"/sys/class/net/{dev}"
+    if not dev or not IFRE.match(dev) or not os.path.exists(p): return info
+    info["ips"] = sh(f"ip -4 -o addr show dev {dev} | awk '{{print $4}}'").split()
+    try:
+        info["mac"] = open(p + "/address").read().strip(); st = open(p + "/operstate").read().strip()
+        info["state"] = "UP" if st == "up" else ("DOWN" if st == "down" else st.upper())
+        info["rx"] = human(int(open(p + "/statistics/rx_bytes").read())); info["tx"] = human(int(open(p + "/statistics/tx_bytes").read()))
+    except Exception: pass
+    return info
+def net_info():
+    c = sysconf(); used = {u["iface"] for u in uplinks()}; lan = c.get("LAN_IF", "")
+    choices = [i for i in phys_ifaces() if i != c.get("MGMT_IF") and (i not in used or i == lan)]
+    if lan and lan not in choices: choices.insert(0, lan)
+    return {"lan": iface_info(lan, c.get("LAN_IP", "")), "mgmt": iface_info(c.get("MGMT_IF", ""), c.get("MGMT_IP", "")), "choices": choices}
+
 def free_ifaces():
-    skip = {"lo", LAN_IF, os.environ.get("MGMT_IF", "")}
+    c = sysconf(); skip = {"lo", c.get("LAN_IF", ""), c.get("MGMT_IF", "")}
     return [i for i in sh("ls /sys/class/net").split() if not i.startswith(("ppp", "mv")) and i not in skip]
 
 def read_failed():
@@ -134,8 +171,8 @@ def traffic():
         out["lines"].append({"i": i, "user": l["user"], "up": True, "down": round(r[0],2), "upl": round(r[1],2), "rx": human(r[2]), "tx": human(r[3])})
         out["total"]["down"] += r[0]; out["total"]["up"] += r[1]
     out["total"] = {k: round(v, 2) for k, v in out["total"].items()}
-    r = rate(LAN_IF) if LAN_IF else None
-    if r: out["lan"] = {"dev": LAN_IF, "to_clients": round(r[1],2), "from_clients": round(r[0],2)}
+    lif = lan_if(); r = rate(lif) if lif else None
+    if r: out["lan"] = {"dev": lif, "to_clients": round(r[1],2), "from_clients": round(r[0],2)}
     out["active"] = sum(1 for x in out["lines"] if x["up"]); out["ts"] = time.strftime("%H:%M:%S")
     return out
 
@@ -214,6 +251,18 @@ PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
 <form class="inline" method="post" action="/restart/{{s.i}}"><button class="gray">إعادة</button></form> <a class="btn" href="/edit/{{s.i}}">تعديل</a> <a class="btn" href="/log/{{s.i}}">سجل</a>
 <form class="inline" method="post" action="/delete/{{s.i}}" onsubmit="return confirm('حذف الخط {{s.user}}؟')"><button class="red">حذف</button></form></td></tr>{% endfor %}
 </tbody></table></div>
+
+<div class="card" id="net"><h3>الشبكة — كرت الخروج للعملاء والإدارة</h3>
+<table><thead><tr><th></th><th>الكرت</th><th>Proxmox</th><th>IP</th><th>MAC</th><th>الحالة</th><th>استقبال</th><th>إرسال</th></tr></thead><tbody>
+{% for label, x in [('الخروج للعملاء (LAN)', net.lan), ('الإدارة', net.mgmt)] %}<tr><td><b>{{label}}</b></td><td>{{x.dev}}</td><td class="muted">{{x.note or '—'}}</td>
+<td style="direction:ltr;text-align:right">{{x.ips|join(', ') or '—'}}{% if x.conf_ip and x.conf_ip not in x.ips %} <span class="DOWN">(المضبوط {{x.conf_ip}})</span>{% endif %}</td>
+<td><span class="mac">{{x.mac}}</span></td><td class="{{x.state}}">{{x.state}}</td><td>{{x.rx}}</td><td>{{x.tx}}</td></tr>{% endfor %}
+</tbody></table>
+<form method="post" action="/lan" style="margin-top:10px" onsubmit="return confirm('تطبيق إعداد الخروج للعملاء الآن؟ العملاء يجب أن يستخدموا الـgateway الجديد.')"><div class="grid">
+<label>كرت الخروج للعملاء<br><select name="iface">{% for i in net.choices %}<option {% if i==net.lan.dev %}selected{% endif %}>{{i}}</option>{% endfor %}</select></label>
+<label>IP/الماسك (= gateway العملاء)<br><input name="ip" value="{{net.lan.conf_ip}}" required placeholder="192.168.121.1/24" style="direction:ltr"></label>
+<button class="green">حفظ وتطبيق</button></div></form>
+<p class="muted">يُطبَّق فوراً بدون إعادة إقلاع. الـVLAN يُضبط على الكرت في Proxmox. الكروت المستخدمة كمداخل لا تظهر في القائمة. الإدارة للعرض فقط حتى لا ينقطع الوصول للوحة.</p></div>
 
 <div class="card"><h3>المداخل (كروت الشبكة للدخول PPPoE)</h3>
 <p class="muted">كل مدخل = كرت شبكة في الـVM؛ الـVLAN tag يُضبط على الكرت في Proxmox. الأول هو الافتراضي. الكروت المتاحة الآن: {{free|join(', ') or 'لا يوجد'}}</p>
@@ -318,7 +367,7 @@ def index():
             try: d = int(open(f"{STATE}/next-{i}").read()); nexts.append({"i": i, "user": l["user"], "left": fmt_dur(max(0, d - time.time()))})
             except Exception: nexts.append({"i": i, "user": l["user"], "left": "—"})
     return render_template_string(PAGE, st=status(), ups=uplinks(), free=free_ifaces(), res=read_csv5(RES), failed=read_failed(),
-                                  fo=fo_conf(), rc=rc, rc_state=rcs, nexts=nexts)
+                                  fo=fo_conf(), rc=rc, rc_state=rcs, nexts=nexts, net=net_info())
 
 @app.route("/api/status")
 @auth
@@ -399,6 +448,16 @@ def log(i): return render_template_string(LOG, title=f"سجل الخط #{i}", tx
 @app.route("/routes")
 @auth
 def routes(): return render_template_string(LOG, title="التوجيه والسجل", txt=sh("ip route show default; echo; ip rule; echo; ip -br link | grep -E '^(mv|ppp)'; echo; journalctl -t multiwan -n 60 --no-pager"))
+
+# --- LAN (الخروج للعملاء) ---
+@app.route("/lan", methods=["POST"])
+@auth
+def lan_set():
+    i = request.form.get("iface", "").strip(); ip = request.form.get("ip", "").strip()
+    if not IFRE.match(i) or not re.match(r'^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$', ip):
+        flash("قيم غير صالحة — مثال: 192.168.121.1/24"); return redirect("/#net")
+    r = subprocess.run([LANSH, i, ip], capture_output=True, text=True); flash((r.stdout + r.stderr).strip() or "تم")
+    return redirect("/#net")
 
 # --- uplinks ---
 @app.route("/uplink-add", methods=["POST"])

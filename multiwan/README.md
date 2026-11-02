@@ -9,6 +9,7 @@
 - إعادة اتصال مجدولة: عشوائية مستقلة لكل خط، أو دورة لكل الخطوط
 - استبدال تلقائي للخط الواقع من قائمة احتياط (رفع Excel/CSV)
 - ترافيك لحظي بنمط Winbox للإجمالي والـLAN ولكل خط
+- قسم "الشبكة": كرت الخروج للعملاء والإدارة (الكرت، IP، MAC، الحالة، VLAN من Proxmox) — وتعديل كرت/IP الخروج للعملاء من اللوحة فوراً
 - إيقاف/تشغيل/إعادة/تعديل/حذف، إضافة دفعة أو بالعدد
 
 ## التنصيب التلقائي على Proxmox (موصى به)
@@ -38,6 +39,7 @@ LINES_FILE=/root/lines.csv bash proxmox-deploy.sh -y
 - `LINES_FILE` اختياري: CSV بالخطوط `user,pass,weight,mac,uplink` (أو أضفها لاحقاً من اللوحة)
 - نسخة الملف الواحد `multiwan-proxmox.sh` (المشروع مضمّن) تُبنى بـ `bash tools/build-allinone.sh`
 - إضافة WAN لاحقاً لـVM قائمة: `qm set 105 --net8 virtio,bridge=Fiber02,tag=1110,firewall=0` ثم من اللوحة ← المداخل ← إضافة (الكرت الجديد يظهر في القائمة)
+- تحديث الكود داخل VM موجودة (الخطوط والإعدادات تبقى): `bash multiwan-proxmox.sh --update 115`
 - المعلومات النهائية (الرابط وكلمات السر) تُحفظ في `/root/multiwan-vm<ID>.txt` على Proxmox
 
 ## الإعداد اليدوي على Proxmox
@@ -78,6 +80,7 @@ bash install.sh            # يعيد الإقلاع عند الحاجة لتب�
 ```bash
 wanstat                          # حالة الخطوط
 multiwan-apply.sh                # تطبيق lines.csv بعد تعديل يدوي
+multiwan-lan.sh net1 192.168.121.1/24   # تغيير كرت/IP الخروج للعملاء
 journalctl -t multiwan -f        # سجل up/down/failover/reconnect
 journalctl -u pppoe@3 -n 30      # سجل خط
 ```
