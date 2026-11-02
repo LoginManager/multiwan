@@ -62,6 +62,8 @@ IPv6AcceptRA=no
 EOF
 done < $D/uplinks.csv
 echo "network: {config: disabled}" > /etc/cloud/cloud.cfg.d/99-disable-network.cfg
+# قاعدة cloud-init تعيد تسمية كرت الإدارة إلى eth0 عند الإقلاع التالي فلا يطابق $MGMT_IF
+rm -f /etc/udev/rules.d/70-persistent-net.rules
 systemctl enable --now systemd-networkd >/dev/null 2>&1 || true
 networkctl reload; sleep 2
 
@@ -134,6 +136,7 @@ nft -f /etc/nftables.conf
 # ---------- 6) تشغيل ----------
 rm -f /etc/cron.d/pppoe-reconnect /etc/cron.d/pppoe-random-each
 systemctl daemon-reload
+systemctl enable multiwan-ifnames >/dev/null 2>&1 || true
 systemctl enable --now nftables macvlan multiwan-web multiwan-reconcile.timer multiwan-failover.timer multiwan-reconnect.timer >/dev/null 2>&1
 systemctl restart nftables macvlan multiwan-web
 /usr/local/sbin/multiwan-apply.sh
