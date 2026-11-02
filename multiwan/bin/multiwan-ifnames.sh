@@ -34,6 +34,8 @@ fi
 declare -A REN CMT ISWAN
 WANS=()
 rm -f $NET/10-multiwan-*.link
+# cloud-init يكتب قاعدة udev تثبّت اسم كرت الإدارة على eth0 وتتغلّب على ملفات .link
+rm -f $R/etc/udev/rules.d/70-persistent-net.rules
 while read -r mac name cmt; do
   mac=$(echo "$mac" | tr 'A-F' 'a-f')
   [ -z "$mac" ] || [ -z "$name" ] && continue

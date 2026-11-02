@@ -62,6 +62,8 @@ IPv6AcceptRA=no
 EOF
 done < $D/uplinks.csv
 echo "network: {config: disabled}" > /etc/cloud/cloud.cfg.d/99-disable-network.cfg
+# قاعدة cloud-init تعيد تسمية كرت الإدارة إلى eth0 عند الإقلاع التالي فلا يطابق $MGMT_IF
+rm -f /etc/udev/rules.d/70-persistent-net.rules
 systemctl enable --now systemd-networkd >/dev/null 2>&1 || true
 networkctl reload; sleep 2
 
