@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # MultiWAN web panel — لوحة إدارة خطوط PPPoE (عربي RTL)
-import os, csv, subprocess, time, functools, re
+import os, csv, subprocess, time, functools, re, hmac
 from flask import Flask, request, redirect, Response, render_template_string, jsonify, flash
 
 D = "/etc/multiwan"
@@ -19,8 +19,8 @@ app = Flask(__name__); app.secret_key = os.urandom(24)
 def auth(f):
     @functools.wraps(f)
     def w(*a, **k):
-        au = request.authorization
-        if not au or au.username != USER or au.password != PASS:
+        au = request.authorization; u, pw = creds()
+        if not au or not hmac.compare_digest(au.username or "", u) or not hmac.compare_digest(au.password or "", pw):
             return Response("Login required", 401, {"WWW-Authenticate": 'Basic realm="MultiWAN"'})
         return f(*a, **k)
     return w
@@ -72,6 +72,18 @@ def sysconf():  # multiwan.conf يُقرأ في كل طلب (تغيير الـLA
                 k, v = l.split("=", 1); d[k.strip()] = v.split("#")[0].strip().strip("\"'")
     except Exception: pass
     return d
+def creds():  # المستخدم وكلمة السر من multiwan.conf (التغيير من اللوحة يسري فوراً)
+    c = sysconf(); return c.get("ADMIN_USER") or USER, c.get("ADMIN_PASS") or PASS
+PASSRE = re.compile(r'^[A-Za-z0-9._@%+=-]{6,64}$')
+def set_conf(key, val):  # يستبدل سطر KEY= في multiwan.conf (أو يضيفه) بكتابة آمنة
+    lines = open(CONF).read().splitlines() if os.path.exists(CONF) else []
+    out, done = [], False
+    for l in lines:
+        if l.strip().startswith(key + "="): out.append(f"{key}={val}"); done = True
+        else: out.append(l)
+    if not done: out.append(f"{key}={val}")
+    with open(CONF + ".tmp", "w") as f: f.write("\n".join(out) + "\n")
+    os.chmod(CONF + ".tmp", 0o600); os.replace(CONF + ".tmp", CONF)
 def lan_if(): return sysconf().get("LAN_IF", os.environ.get("LAN_IF", ""))
 def phys_ifaces(): return sorted((i for i in os.listdir("/sys/class/net") if os.path.exists(f"/sys/class/net/{i}/device")), key=lambda x: (len(x), x))
 def proxmox_notes():  # netN → "Fiber02 VLAN121" من /etc/multiwan/ifnames
@@ -264,6 +276,16 @@ PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
 <button class="green">حفظ وتطبيق</button></div></form>
 <p class="muted">يُطبَّق فوراً بدون إعادة إقلاع. الـVLAN يُضبط على الكرت في Proxmox. الكروت المستخدمة كمداخل لا تظهر في القائمة. الإدارة للعرض فقط حتى لا ينقطع الوصول للوحة.</p></div>
 
+<div class="card" id="sec"><h3>الأمان — بيانات دخول اللوحة</h3>
+<form method="post" action="/password" autocomplete="off"><div class="grid">
+<label>اسم المستخدم<br><input name="user" value="{{admin_user}}" required style="direction:ltr"></label>
+<label>كلمة السر الحالية<br><input name="old" type="password" required style="direction:ltr"></label>
+<label>كلمة السر الجديدة<br><input name="new" type="password" required minlength="6" maxlength="64" style="direction:ltr"></label>
+<label>تأكيد الجديدة<br><input name="new2" type="password" required minlength="6" maxlength="64" style="direction:ltr"></label>
+<label><input type="checkbox" name="root" value="1"> نفس الكلمة لـroot (SSH/Console)</label>
+<button class="green">تغيير</button></div></form>
+<p class="muted">6 أحرف على الأقل: حروف إنجليزية وأرقام و . _ @ % + = - . بعد التغيير يطلب المتصفح الدخول بالبيانات الجديدة.</p></div>
+
 <div class="card"><h3>المداخل (كروت الشبكة للدخول PPPoE)</h3>
 <p class="muted">كل مدخل = كرت شبكة في الـVM؛ الـVLAN tag يُضبط على الكرت في Proxmox. الأول هو الافتراضي. الكروت المتاحة الآن: {{free|join(', ') or 'لا يوجد'}}</p>
 {% for u in ups %}<span class="chip"><b>{{u.name}}</b> → {{u.iface}} {% if u.comment %}<span class="muted">({{u.comment}})</span>{% endif %}
@@ -367,7 +389,7 @@ def index():
             try: d = int(open(f"{STATE}/next-{i}").read()); nexts.append({"i": i, "user": l["user"], "left": fmt_dur(max(0, d - time.time()))})
             except Exception: nexts.append({"i": i, "user": l["user"], "left": "—"})
     return render_template_string(PAGE, st=status(), ups=uplinks(), free=free_ifaces(), res=read_csv5(RES), failed=read_failed(),
-                                  fo=fo_conf(), rc=rc, rc_state=rcs, nexts=nexts, net=net_info())
+                                  fo=fo_conf(), rc=rc, rc_state=rcs, nexts=nexts, net=net_info(), admin_user=creds()[0])
 
 @app.route("/api/status")
 @auth
@@ -458,6 +480,24 @@ def lan_set():
         flash("قيم غير صالحة — مثال: 192.168.121.1/24"); return redirect("/#net")
     r = subprocess.run([LANSH, i, ip], capture_output=True, text=True); flash((r.stdout + r.stderr).strip() or "تم")
     return redirect("/#net")
+
+# --- كلمة السر ---
+@app.route("/password", methods=["POST"])
+@auth
+def password():
+    f = request.form; cu, cp = creds()
+    nu = (f.get("user") or cu).strip(); old = f.get("old", ""); new = f.get("new", ""); new2 = f.get("new2", "")
+    if not hmac.compare_digest(old, cp): flash("❌ كلمة السر الحالية غير صحيحة")
+    elif new != new2: flash("❌ كلمتا السر الجديدتان غير متطابقتين")
+    elif not PASSRE.match(new): flash("❌ كلمة السر: 6–64 حرفاً، حروف إنجليزية/أرقام و . _ @ % + = - فقط")
+    elif not re.match(r'^[A-Za-z0-9._-]{1,32}$', nu): flash("❌ اسم المستخدم: حروف إنجليزية/أرقام و . _ - فقط")
+    else:
+        set_conf("ADMIN_USER", nu); set_conf("ADMIN_PASS", new); msg = f"✓ تم تغيير بيانات الدخول ({nu}) — سيطلب المتصفح الدخول من جديد"
+        if f.get("root"):
+            r = subprocess.run(["chpasswd"], input=f"root:{new}\n", capture_output=True, text=True)
+            msg += " — وكلمة سر root تغيّرت" if r.returncode == 0 else f" — ⚠ root لم تتغيّر: {r.stderr.strip()}"
+        sh(f"logger -t multiwan 'panel password changed (user {nu})'"); flash(msg)
+    return redirect("/#sec")
 
 # --- uplinks ---
 @app.route("/uplink-add", methods=["POST"])
