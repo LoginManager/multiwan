@@ -12,11 +12,11 @@
 #  الاستخدام:
 #    bash proxmox-deploy.sh            # يسألك عن كل إعداد (Enter = القيمة بين [])
 #    bash proxmox-deploy.sh -y         # بدون أسئلة، القيم الافتراضية أو من المتغيرات:
-#    VMID=105 MGMT_IP=10.10.60.150/24 MGMT_GW=10.10.60.1 WAN_TAGS="1104 1105" \
+#    VMID=105 MGMT_IP=10.10.60.150/24 MGMT_GW=10.10.60.1 WAN_TAGS="1104 1105 1106" \
 #      ADMIN_PASS=MyPass123 bash proxmox-deploy.sh -y
 #
 #  WAN_TAGS: قائمة المداخل بمسافات. كل عنصر: tag  أو  bridge:tag  أو  bridge:-  (بدون tag)
-#     مثال: "1104 1105"  أو  "Fiber02:1104 Fiber03:200"
+#     الافتراضي 6 مداخل: "1104 1105 1106 1107 1108 1109"  — أو مثلاً "Fiber02:1104 Fiber03:200"
 #  LINES_FILE: (اختياري) ملف CSV على Proxmox بالخطوط  user,pass,weight,mac,uplink
 # =====================================================================
 set -euo pipefail
@@ -73,7 +73,7 @@ ask LAN_TAG     "VLAN tag للـLAN (فارغ = بدون)"         121
 ask LAN_IP      "IP الـVM على شبكة العملاء (gateway لهم)" 192.168.121.1/24
 echo "--- مداخل PPPoE (net2 ...)"
 ask WAN_BRIDGE  "bridge الافتراضي للمداخل"              Fiber02
-ask WAN_TAGS    "VLAN tags للمداخل (بمسافات)"           1104
+ask WAN_TAGS    "VLAN tags للمداخل (بمسافات، واحد لكل WAN)" "1104 1105 1106 1107 1108 1109"
 echo "--- الدخول"
 ask WEB_PORT    "منفذ اللوحة"                           8080
 ask ADMIN_USER  "مستخدم اللوحة"                         admin
@@ -123,7 +123,12 @@ fi
 # ---------------- مصدر المشروع ----------------
 step "تجهيز ملفات المشروع"
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
-if [ -f "$HERE/multiwan/install.sh" ]; then SRC=$HERE/multiwan
+if grep -q '^__MULTIWAN_PAYLOAD__$' "$0" 2>/dev/null; then
+  # نسخة الملف الواحد: المشروع مضمّن في آخر هذا السكربت
+  mkdir -p "$WORK/src"
+  sed '1,/^__MULTIWAN_PAYLOAD__$/d' "$0" | base64 -d | tar -xz -C "$WORK/src" || die "الملفات المضمّنة تالفة"
+  SRC=$WORK/src; echo "  (المشروع مضمّن في السكربت)"
+elif [ -f "$HERE/multiwan/install.sh" ]; then SRC=$HERE/multiwan
 elif [ -f "$HERE/install.sh" ] && [ -d "$HERE/bin" ]; then SRC=$HERE
 else
   echo "  تنزيل المشروع من $REPO_TARBALL"
@@ -271,3 +276,4 @@ echo
 echo "الخطوة التالية: افتح اللوحة وأضف خطوط PPPoE (أو ارفع ملف Excel/CSV)."
 echo "العملاء: gateway = ${LAN_IP%/*} على VLAN ${LAN_TAG:-بدون tag}."
 echo "حُفظت هذه المعلومات في $INFO"
+exit 0

@@ -28,8 +28,10 @@ LAN_BRIDGE=Fiber02 LAN_TAG=121 LAN_IP=192.168.121.1/24 \
 WAN_BRIDGE=Fiber02 WAN_TAGS="1104 1105" ADMIN_PASS=MyPass123 \
 LINES_FILE=/root/lines.csv bash proxmox-deploy.sh -y
 ```
-- `WAN_TAGS`: مدخل لكل عنصر — `1104` أو `Fiber03:200` (bridge آخر) أو `Fiber03:-` (بدون tag)
+- `WAN_TAGS`: مدخل لكل عنصر (الافتراضي 6: `1104 1105 1106 1107 1108 1109`) — `1104` أو `Fiber03:200` (bridge آخر) أو `Fiber03:-` (بدون tag)
 - `LINES_FILE` اختياري: CSV بالخطوط `user,pass,weight,mac,uplink` (أو أضفها لاحقاً من اللوحة)
+- نسخة الملف الواحد `multiwan-proxmox.sh` (المشروع مضمّن) تُبنى بـ `bash tools/build-allinone.sh`
+- إضافة WAN لاحقاً لـVM قائمة: `qm set 105 --net8 virtio,bridge=Fiber02,tag=1110,firewall=0` ثم من اللوحة ← المداخل ← إضافة (الكرت الجديد يظهر في القائمة)
 - المعلومات النهائية (الرابط وكلمات السر) تُحفظ في `/root/multiwan-vm<ID>.txt` على Proxmox
 
 ## الإعداد اليدوي على Proxmox
