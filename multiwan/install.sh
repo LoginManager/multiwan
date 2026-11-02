@@ -87,7 +87,7 @@ printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_confi
 systemctl enable --now ssh >/dev/null 2>&1 || true; systemctl restart ssh || true
 
 # ---------- 4) السكربتات ----------
-install -m 755 $SRC/bin/macvlan-up.sh $SRC/bin/multiwan-apply.sh $SRC/bin/pppoe-line.sh $SRC/bin/multiwan-route.sh \
+install -m 755 $SRC/bin/macvlan-up.sh $SRC/bin/multiwan-apply.sh $SRC/bin/pppoe-line.sh $SRC/bin/multiwan-route.sh $SRC/bin/multiwan-ifnames.sh \
                $SRC/bin/multiwan-failover.sh $SRC/bin/multiwan-reconnect.sh /usr/local/sbin/
 install -m 755 $SRC/bin/wanstat /usr/local/bin/wanstat
 ln -sf /usr/local/sbin/multiwan-route.sh /etc/ppp/ip-up.d/50-multiwan
