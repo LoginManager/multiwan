@@ -86,6 +86,9 @@ journalctl -u pppoe@3 -n 30      # سجل خط
 ```
 
 ## التحديث
+من داخل الـVM (كـ root) — الخطوط والإعدادات تبقى:
 ```bash
-cd multiwan/multiwan && git pull && bash install.sh
+multiwan-update            # من main
+multiwan-update <فرع>      # أو من فرع/commit معيّن
 ```
+أو من Proxmox: `bash multiwan-proxmox.sh --update 115`

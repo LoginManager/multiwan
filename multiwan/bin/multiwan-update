@@ -1,0 +1,27 @@
+#!/bin/bash
+# multiwan-update [فرع|commit] — يحدّث MultiWAN من GitHub من داخل الـVM (الخطوط والإعدادات في /etc/multiwan تبقى)
+#   multiwan-update          # من main
+#   multiwan-update <فرع>    # من فرع آخر أو commit معيّن
+set -e
+[ "$(id -u)" = 0 ] || { echo "شغّله كـ root"; exit 1; }
+REF=${1:-main}
+URL=https://github.com/LoginManager/multiwan/archive/$REF.tar.gz
+. /etc/multiwan/multiwan.conf
+# إن لم يوجد خط شغّال (لا default route) نخرج مؤقتاً عبر gateway الإدارة
+if ! ip route show default | grep -q . && [ -n "${TMP_GW:-}" ]; then
+  ip route add default via "$TMP_GW" && trap 'ip route del default via "$TMP_GW" 2>/dev/null || true' EXIT
+fi
+W=$(mktemp -d)
+echo "==> تنزيل $URL"
+curl -fsSL "$URL" | tar -xz -C "$W" --strip-components=1 || { echo "❌ فشل التنزيل — تأكد من الإنترنت/الـDNS"; exit 1; }
+[ -f "$W/multiwan/install.sh" ] || { echo "❌ الأرشيف لا يحتوي multiwan/install.sh"; exit 1; }
+rm -rf /opt/multiwan-src && cp -a "$W/multiwan" /opt/multiwan-src && rm -rf "$W"
+echo "==> تشغيل install.sh"
+bash /opt/multiwan-src/install.sh
+# أسماء الكروت: إن كان اسم أي كرت لا يطابق /etc/multiwan/ifnames فالأسماء تُطبَّق بعد إعادة الإقلاع
+if [ -s /etc/multiwan/ifnames ]; then
+  while read -r mac name _; do
+    [ -n "$name" ] && [ ! -e /sys/class/net/$name ] && { echo; echo "⚠ الكرت $name لم يأخذ اسمه بعد — نفّذ: reboot"; break; }
+  done < /etc/multiwan/ifnames
+fi
+echo "✅ تم التحديث"
