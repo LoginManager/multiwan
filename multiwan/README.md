@@ -11,7 +11,28 @@
 - ترافيك لحظي بنمط Winbox للإجمالي والـLAN ولكل خط
 - إيقاف/تشغيل/إعادة/تعديل/حذف، إضافة دفعة أو بالعدد
 
-## الإعداد على Proxmox
+## التنصيب التلقائي على Proxmox (موصى به)
+سكربت `proxmox-deploy.sh` في جذر المستودع يُشغَّل على عقدة Proxmox نفسها ويقوم بكل شيء:
+تنزيل Debian 12 ← إنشاء الـVM والكروت ← cloud-init ← نسخ المشروع ← `install.sh` ← التحقق من اللوحة.
+```bash
+curl -fsSL https://github.com/LoginManager/multiwan/archive/refs/heads/main.tar.gz | tar xz
+cd multiwan-main && bash proxmox-deploy.sh
+```
+ترتيب الكروت الذي ينشئه: `net0` إدارة، `net1` LAN العملاء، `net2…` مداخل PPPoE (واحد لكل VLAN).
+أسماء الكروت داخل الـVM تُكتشف تلقائياً حسب الـMAC، فلا حاجة لمعرفتها.
+
+بدون أسئلة (كل إعداد يمكن تمريره كمتغير):
+```bash
+VMID=105 MGMT_BRIDGE=vmbr0 MGMT_IP=10.10.60.150/24 MGMT_GW=10.10.60.1 \
+LAN_BRIDGE=Fiber02 LAN_TAG=121 LAN_IP=192.168.121.1/24 \
+WAN_BRIDGE=Fiber02 WAN_TAGS="1104 1105" ADMIN_PASS=MyPass123 \
+LINES_FILE=/root/lines.csv bash proxmox-deploy.sh -y
+```
+- `WAN_TAGS`: مدخل لكل عنصر — `1104` أو `Fiber03:200` (bridge آخر) أو `Fiber03:-` (بدون tag)
+- `LINES_FILE` اختياري: CSV بالخطوط `user,pass,weight,mac,uplink` (أو أضفها لاحقاً من اللوحة)
+- المعلومات النهائية (الرابط وكلمات السر) تُحفظ في `/root/multiwan-vm<ID>.txt` على Proxmox
+
+## الإعداد اليدوي على Proxmox
 ```bash
 # net0 إدارة، net1.. مداخل PPPoE (tag على كل كرت)، آخر كرت خروج للعملاء
 qm set 105 --net0 virtio,bridge=vmbr0,firewall=0
@@ -23,7 +44,7 @@ qm set 105 --net3 virtio,bridge=Fiber02,tag=1105,firewall=0     # wan2 (اختي
 
 ## التثبيت
 ```bash
-git clone https://github.com/LoginManager/multiwan.git && cd multiwan
+git clone https://github.com/LoginManager/multiwan.git && cd multiwan/multiwan
 nano etc/multiwan.conf     # الكروت، عناوين الإدارة والـLAN، كلمة سر اللوحة
 nano etc/uplinks.csv       # name,iface,comment  — المداخل
 nano etc/lines.csv         # user,pass,weight,mac,uplink — الخطوط الأولية (اختياري)
@@ -54,5 +75,5 @@ journalctl -u pppoe@3 -n 30      # سجل خط
 
 ## التحديث
 ```bash
-cd multiwan && git pull && bash install.sh
+cd multiwan/multiwan && git pull && bash install.sh
 ```

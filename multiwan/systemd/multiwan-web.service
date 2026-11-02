@@ -2,8 +2,8 @@
 Description=MultiWAN web panel
 After=network.target
 [Service]
-EnvironmentFile=/etc/multiwan/multiwan.conf
-ExecStart=/usr/bin/python3 /opt/multiwan/app.py
+# نقرأ multiwan.conf عبر bash (لا عبر EnvironmentFile) لأن systemd لا يحذف التعليق بعد القيمة
+ExecStart=/bin/bash -c 'set -a; . /etc/multiwan/multiwan.conf; exec /usr/bin/python3 /opt/multiwan/app.py'
 Restart=always
 RestartSec=3
 [Install]
