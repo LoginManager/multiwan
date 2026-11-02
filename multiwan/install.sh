@@ -28,6 +28,22 @@ Name=$MGMT_IF
 Address=$MGMT_IP
 DNS=$DNS
 EOF
+# ردود الإدارة (اللوحة/SSH) ترجع عبر gateway الإدارة من أي شبكة — دون أن يمر ترافيك العملاء منه
+MGMT_NET=$(python3 -c 'import ipaddress,sys;print(ipaddress.ip_interface(sys.argv[1]).network)' "$MGMT_IP")
+if [ -n "${TMP_GW:-}" ]; then cat >> /etc/systemd/network/10-mgmt.network <<EOF
+[Route]
+Destination=$MGMT_NET
+Scope=link
+Table=200
+[Route]
+Gateway=$TMP_GW
+Table=200
+[RoutingPolicyRule]
+From=${MGMT_IP%/*}
+Table=200
+Priority=900
+EOF
+fi
 cat > /etc/systemd/network/30-lan.network <<EOF
 [Match]
 Name=$LAN_IF
@@ -52,6 +68,8 @@ networkctl reload; sleep 2
 # ---------- 3) الحزم + الكيرنل العادي (صورة cloud ما فيها PPPoE) ----------
 export DEBIAN_FRONTEND=noninteractive
 TMPROUTE=0; ip route show default | grep -q . || { ip route add default via $TMP_GW && TMPROUTE=1; }
+# DNS مؤقت إن لم يكن الحل يعمل (الحزم تحتاجه فقط)
+getent hosts deb.debian.org >/dev/null 2>&1 || { rm -f /etc/resolv.conf; echo "nameserver ${DNS:-8.8.8.8}" > /etc/resolv.conf; }
 apt-get update -qq
 apt-get install -y -qq ppp nftables qemu-guest-agent python3-flask python3-openpyxl >/dev/null
 NEEDREBOOT=0
