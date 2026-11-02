@@ -134,6 +134,7 @@ nft -f /etc/nftables.conf
 # ---------- 6) تشغيل ----------
 rm -f /etc/cron.d/pppoe-reconnect /etc/cron.d/pppoe-random-each
 systemctl daemon-reload
+systemctl enable multiwan-ifnames >/dev/null 2>&1 || true
 systemctl enable --now nftables macvlan multiwan-web multiwan-reconcile.timer multiwan-failover.timer multiwan-reconnect.timer >/dev/null 2>&1
 systemctl restart nftables macvlan multiwan-web
 /usr/local/sbin/multiwan-apply.sh

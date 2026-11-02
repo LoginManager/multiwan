@@ -5,14 +5,31 @@
 # (يكتبه proxmox-deploy.sh --ifnames من qm config)
 #  - الإدارة والـLAN يُعرفان من multiwan.conf، وكل كرت آخر يصبح مدخلاً: netN → wan(N-1) بتعليق الـVLAN
 #  - يحدّث multiwan.conf و uplinks.csv و lines.csv و nftables و systemd-networkd
-#  - الأسماء الجديدة تُطبَّق بعد إعادة الإقلاع
+#  - الأسماء الجديدة تُطبَّق بعد إعادة الإقلاع (ملفات .link + خدمة multiwan-ifnames.service احتياطاً)
 set -e
 R=${MULTIWAN_ROOT:-}   # للاختبار فقط
 D=$R/etc/multiwan; NET=$R/etc/systemd/network; MAP=$D/ifnames; NFT=$R/etc/nftables.conf
+cur_name() { local d; for d in $R/sys/class/net/*; do [ -e "$d/device" ] && [ "$(cat "$d/address")" = "$1" ] && { basename "$d"; return; }; done; }
+
+# --boot: (من multiwan-ifnames.service قبل الشبكة) يغيّر الأسماء فعلياً حسب $MAP — لا يعتمد على udev/initramfs
+if [ "${1:-}" = --boot ]; then
+  [ -s $MAP ] || exit 0
+  for t in $(seq 1 20); do   # انتظر ظهور كل الكروت (حتى 10ث)
+    miss=0
+    while read -r mac name _; do [ -n "$name" ] && [ -z "$(cur_name "$(echo "$mac" | tr 'A-F' 'a-f')")" ] && miss=1; done < $MAP
+    [ $miss = 0 ] && break; sleep 0.5
+  done
+  while read -r mac name _; do
+    mac=$(echo "$mac" | tr 'A-F' 'a-f'); [ -z "$mac" ] || [ -z "$name" ] && continue
+    cur=$(cur_name "$mac"); [ -z "$cur" ] || [ "$cur" = "$name" ] && continue
+    [ -e $R/sys/class/net/$name ] && { logger -t multiwan "ifname: $name مستخدم — لم يُغيَّر $cur"; continue; }
+    ip link set dev "$cur" down && ip link set dev "$cur" name "$name" && logger -t multiwan "ifname: $cur → $name"
+  done < $MAP
+  exit 0
+fi
+
 [ -s $MAP ] || { echo "لا يوجد $MAP"; exit 1; }
 . $D/multiwan.conf
-
-cur_name() { local d; for d in $R/sys/class/net/*; do [ -e "$d/device" ] && [ "$(cat "$d/address")" = "$1" ] && { basename "$d"; return; }; done; }
 
 declare -A REN CMT ISWAN
 WANS=()

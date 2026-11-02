@@ -1,0 +1,12 @@
+[Unit]
+Description=Name NICs like Proxmox (net0, net1, ...)
+DefaultDependencies=no
+Wants=systemd-udev-settle.service network-pre.target
+After=systemd-udev-settle.service systemd-udev-trigger.service
+Before=network-pre.target systemd-networkd.service macvlan.service nftables.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/multiwan-ifnames.sh --boot
+[Install]
+WantedBy=sysinit.target
