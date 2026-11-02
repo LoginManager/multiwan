@@ -22,6 +22,8 @@
 #  أسماء الكروت داخل الـVM تُضبط تلقائياً لتطابق Proxmox: net0 إدارة، net1 LAN، net2.. = wan1..
 #  لـVM موجودة (أو بعد إضافة/تعديل كروت في Proxmox):
 #    bash proxmox-deploy.sh --ifnames 115
+#  تحديث كود MultiWAN داخل VM موجودة (الخطوط والإعدادات تبقى كما هي):
+#    bash proxmox-deploy.sh --update 115
 # =====================================================================
 set -euo pipefail
 
@@ -29,7 +31,8 @@ AUTO=0; MODE=deploy
 case "${1:-}" in
   -y|--yes) AUTO=1 ;;
   --ifnames) MODE=ifnames; VMID=${2:-} ;;
-  -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+  --update) MODE=update; VMID=${2:-} ;;
+  -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
   "") ;;
   *) echo "خيار غير معروف: $1 (استخدم -h)"; exit 1 ;;
 esac
@@ -105,6 +108,31 @@ apply_ifnames() {
   [ -z "$bad" ] || die "لم تُطبَّق الأسماء: $bad — داخل الـVM: ls /etc/systemd/network/10-multiwan-*"
   echo "  ✓ الأسماء مطابقة لـProxmox"
 }
+
+# ---------------- وضع --update: نسخ الكود الجديد وتشغيل install.sh داخل VM موجودة ----------------
+if [ "$MODE" = update ]; then
+  [[ ${VMID:-} =~ ^[0-9]+$ ]] || die "الاستخدام: bash $0 --update <رقم الـVM>"
+  qm config "$VMID" >/dev/null 2>&1 || die "الـVM $VMID غير موجودة على هذه العقدة"
+  step "تحديث MultiWAN داخل الـVM $VMID"
+  load_src
+  agent_wait 12 || die "qemu-guest-agent لا يرد في الـVM $VMID"
+  tar -C "$SRC" -czf - . | base64 | gexec bash -c 'rm -rf /opt/multiwan-src && mkdir -p /opt/multiwan-src && base64 -d | tar -xz -C /opt/multiwan-src' \
+    || die "تعذّر نسخ الملفات إلى الـVM"
+  echo "  نُسخت الملفات — تشغيل install.sh (الإعدادات في /etc/multiwan لا تُمس)"
+  gexec bash -c 'rm -f /var/log/multiwan-install.rc; setsid nohup bash -c "bash /opt/multiwan-src/install.sh > /var/log/multiwan-install.log 2>&1; echo \$? > /var/log/multiwan-install.rc" >/dev/null 2>&1 </dev/null &' </dev/null
+  shown=0; rc=""
+  for n in $(seq 1 120); do
+    sleep 5
+    out=$(gexec tail -n +$((shown+1)) /var/log/multiwan-install.log </dev/null 2>/dev/null || true)
+    [ -n "$out" ] && { printf '%s\n' "$out" | sed 's/^/  │ /'; shown=$((shown + $(printf '%s\n' "$out" | wc -l))); }
+    rc=$(gexec cat /var/log/multiwan-install.rc </dev/null 2>/dev/null || true)
+    [ -n "$rc" ] && break
+  done
+  [ -n "$rc" ] || die "انتهت المهلة — السجل داخل الـVM: /var/log/multiwan-install.log"
+  [ "$rc" = 0 ] || die "install.sh فشل (rc=$rc) — السجل داخل الـVM: /var/log/multiwan-install.log"
+  echo; echo "✅ تم التحديث. أعد تحميل اللوحة في المتصفح."
+  exit 0
+fi
 
 # ---------------- وضع --ifnames: ضبط أسماء كروت VM موجودة ----------------
 if [ "$MODE" = ifnames ]; then
