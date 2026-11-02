@@ -19,7 +19,13 @@ curl -fsSL https://github.com/LoginManager/multiwan/archive/refs/heads/main.tar.
 cd multiwan-main && bash proxmox-deploy.sh
 ```
 ترتيب الكروت الذي ينشئه: `net0` إدارة، `net1` LAN العملاء، `net2…` مداخل PPPoE (واحد لكل VLAN).
-أسماء الكروت داخل الـVM تُكتشف تلقائياً حسب الـMAC، فلا حاجة لمعرفتها.
+أسماء الكروت داخل الـVM **تطابق أسماء Proxmox**: `net0`، `net1`، `net2`… والمداخل `wan1=net2`، `wan2=net3`… مع تعليق الـVLAN الفعلي.
+
+بعد إضافة كرت أو تغيير VLAN في Proxmox (أو لـVM قديمة بأسماء `ens20`/`enp2s1`)، شغّل على Proxmox:
+```bash
+bash multiwan-proxmox.sh --ifnames 115
+```
+يقرأ الكروت من `qm config`، يسمّيها داخل الـVM عبر guest agent، يحدّث الإعداد ويعيد الإقلاع.
 
 بدون أسئلة (كل إعداد يمكن تمريره كمتغير):
 ```bash
@@ -64,6 +70,7 @@ bash install.sh            # يعيد الإقلاع عند الحاجة لتب�
 /etc/multiwan/reconnect.conf  جدولة إعادة الاتصال
 /etc/multiwan/failover.conf   مدة الاستبدال
 /usr/local/sbin/*             السكربتات
+/etc/multiwan/ifnames         MAC → اسم الكرت (net0..) من Proxmox
 /opt/multiwan/app.py          اللوحة
 ```
 

@@ -18,13 +18,18 @@
 #  WAN_TAGS: قائمة المداخل بمسافات. كل عنصر: tag  أو  bridge:tag  أو  bridge:-  (بدون tag)
 #     الافتراضي 6 مداخل: "1104 1105 1106 1107 1108 1109"  — أو مثلاً "Fiber02:1104 Fiber03:200"
 #  LINES_FILE: (اختياري) ملف CSV على Proxmox بالخطوط  user,pass,weight,mac,uplink
+#
+#  أسماء الكروت داخل الـVM تُضبط تلقائياً لتطابق Proxmox: net0 إدارة، net1 LAN، net2.. = wan1..
+#  لـVM موجودة (أو بعد إضافة/تعديل كروت في Proxmox):
+#    bash proxmox-deploy.sh --ifnames 115
 # =====================================================================
 set -euo pipefail
 
-AUTO=0
+AUTO=0; MODE=deploy
 case "${1:-}" in
   -y|--yes) AUTO=1 ;;
-  -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+  --ifnames) MODE=ifnames; VMID=${2:-} ;;
+  -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
   "") ;;
   *) echo "خيار غير معروف: $1 (استخدم -h)"; exit 1 ;;
 esac
@@ -47,6 +52,67 @@ ask() {  # ask VAR "السؤال" افتراضي
   if [ $AUTO -eq 0 ]; then read -r -p "  $q [$def]: " ans </dev/tty || true; fi
   printf -v "$var" '%s' "${ans:-$def}"
 }
+
+WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
+load_src() {  # SRC = مجلد multiwan/ (مضمّن في السكربت، أو بجانبه، أو من GitHub)
+  if grep -q '^__MULTIWAN_PAYLOAD__$' "$0" 2>/dev/null; then
+    # نسخة الملف الواحد: المشروع مضمّن في آخر هذا السكربت
+    mkdir -p "$WORK/src"
+    sed '1,/^__MULTIWAN_PAYLOAD__$/d' "$0" | base64 -d | tar -xz -C "$WORK/src" || die "الملفات المضمّنة تالفة"
+    SRC=$WORK/src; echo "  (المشروع مضمّن في السكربت)"
+  elif [ -f "$HERE/multiwan/install.sh" ]; then SRC=$HERE/multiwan
+  elif [ -f "$HERE/install.sh" ] && [ -d "$HERE/bin" ]; then SRC=$HERE
+  else
+    echo "  تنزيل المشروع من $REPO_TARBALL"
+    mkdir -p "$WORK/repo"; curl -fsSL "$REPO_TARBALL" | tar -xz -C "$WORK/repo" --strip-components=1 || die "فشل تنزيل المشروع"
+    SRC=$WORK/repo/multiwan
+  fi
+  [ -f "$SRC/install.sh" ] || die "لم أجد install.sh في $SRC"
+  echo "  المصدر: $SRC"
+}
+
+# تنفيذ أمر داخل الـVM عبر qemu-guest-agent (يعمل حتى لو الشبكة مقطوعة)؛ stdin يُمرَّر للأمر
+gexec() {
+  qm guest exec "$VMID" --timeout 300 --pass-stdin 1 -- "$@" | perl -MJSON::PP -0777 -ne '
+    binmode STDOUT, ":utf8"; binmode STDERR, ":utf8";
+    my $j = decode_json($_); print $j->{"out-data"} // ""; print STDERR $j->{"err-data"} // "";
+    exit(defined $j->{exitcode} ? $j->{exitcode} : 1)'
+}
+agent_wait() { local n; for n in $(seq 1 ${1:-60}); do qm agent "$VMID" ping >/dev/null 2>&1 && return 0; sleep 5; done; return 1; }
+# "MAC netN bridge VLANtag" لكل كرت من إعداد Proxmox
+ifmap() {
+  qm config "$VMID" | sed -n 's/^\(net[0-9]*\): [a-z0-9]*=\([0-9A-Fa-f:]*\),\(.*\)$/\1 \2 \3/p' | while read -r n mac opts; do
+    br=$(sed -n 's/.*bridge=\([^,]*\).*/\1/p' <<<"$opts"); tag=$(sed -n 's/.*tag=\([0-9]*\).*/\1/p' <<<"$opts")
+    echo "$(tr 'A-F' 'a-f' <<<"$mac") $n $br${tag:+ VLAN$tag}"
+  done | sort -V -k2
+}
+# يسمّي كروت الـVM net0.. حسب Proxmox ويحدّث الإعداد ثم يعيد الإقلاع
+apply_ifnames() {
+  agent_wait 12 || die "qemu-guest-agent لا يرد في الـVM $VMID — تأكد أنها شغّالة و Options → QEMU Guest Agent مفعّل"
+  echo "  الكروت في Proxmox:"; ifmap | sed 's/^/    /'
+  ifmap | gexec tee /etc/multiwan/ifnames >/dev/null || die "تعذّر الكتابة داخل الـVM"
+  gexec tee /usr/local/sbin/multiwan-ifnames.sh < "$SRC/bin/multiwan-ifnames.sh" >/dev/null
+  gexec chmod 755 /usr/local/sbin/multiwan-ifnames.sh </dev/null
+  gexec bash /usr/local/sbin/multiwan-ifnames.sh </dev/null | sed 's/^/  │ /' || die "multiwan-ifnames.sh فشل داخل الـVM"
+  echo "  إعادة إقلاع الـVM $VMID ..."
+  qm reboot "$VMID" --timeout 180 >/dev/null 2>&1 || { qm stop "$VMID" >/dev/null; qm start "$VMID" >/dev/null; }
+  sleep 10; agent_wait 60 || die "الـVM لم تعد بعد الإقلاع — افحص الكونسول"
+  echo "  الكروت داخل الـVM الآن:"; gexec ip -br link </dev/null | grep -vE '^(lo|mv|ppp)' | sed 's/^/    /'
+  local bad; bad=$(ifmap | while read -r mac n _; do gexec cat /sys/class/net/$n/address </dev/null 2>/dev/null | grep -qi "$mac" || echo "$n"; done)
+  [ -z "$bad" ] || die "لم تُطبَّق الأسماء: $bad — داخل الـVM: ls /etc/systemd/network/10-multiwan-*"
+  echo "  ✓ الأسماء مطابقة لـProxmox"
+}
+
+# ---------------- وضع --ifnames: ضبط أسماء كروت VM موجودة ----------------
+if [ "$MODE" = ifnames ]; then
+  [[ ${VMID:-} =~ ^[0-9]+$ ]] || die "الاستخدام: bash $0 --ifnames <رقم الـVM>"
+  qm config "$VMID" >/dev/null 2>&1 || die "الـVM $VMID غير موجودة على هذه العقدة"
+  step "ضبط أسماء كروت الـVM $VMID لتطابق Proxmox"
+  load_src >/dev/null
+  apply_ifnames
+  echo; echo "✅ تم. افتح اللوحة ← المداخل للتأكد (wan1=net2 ... بتعليق الـVLAN)."
+  exit 0
+fi
 
 # ---------------- الإعدادات ----------------
 DEF_STORAGE=$(pvesm status -content images 2>/dev/null | awk 'NR>1 && $3=="active"{print $1}' | grep -xE 'local-lvm|local-zfs' | head -1 || true)
@@ -122,21 +188,7 @@ fi
 
 # ---------------- مصدر المشروع ----------------
 step "تجهيز ملفات المشروع"
-WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
-if grep -q '^__MULTIWAN_PAYLOAD__$' "$0" 2>/dev/null; then
-  # نسخة الملف الواحد: المشروع مضمّن في آخر هذا السكربت
-  mkdir -p "$WORK/src"
-  sed '1,/^__MULTIWAN_PAYLOAD__$/d' "$0" | base64 -d | tar -xz -C "$WORK/src" || die "الملفات المضمّنة تالفة"
-  SRC=$WORK/src; echo "  (المشروع مضمّن في السكربت)"
-elif [ -f "$HERE/multiwan/install.sh" ]; then SRC=$HERE/multiwan
-elif [ -f "$HERE/install.sh" ] && [ -d "$HERE/bin" ]; then SRC=$HERE
-else
-  echo "  تنزيل المشروع من $REPO_TARBALL"
-  mkdir -p "$WORK/repo"; curl -fsSL "$REPO_TARBALL" | tar -xz -C "$WORK/repo" --strip-components=1 || die "فشل تنزيل المشروع"
-  SRC=$WORK/repo/multiwan
-fi
-[ -f "$SRC/install.sh" ] || die "لم أجد install.sh في $SRC"
-echo "  المصدر: $SRC"
+load_src
 
 # ---------------- صورة Debian ----------------
 step "صورة Debian 12"
@@ -249,6 +301,12 @@ if vrun "uname -r" | grep -q cloud; then
   vrun "sudo systemctl reboot" || true; sleep 15
   for n in $(seq 1 60); do vrun true 2>/dev/null && break; sleep 5; done
 fi
+
+# ---------------- أسماء الكروت = أسماء Proxmox ----------------
+step "تسمية الكروت net0, net1, ... لتطابق Proxmox"
+apply_ifnames
+MGMT_IF=net0; LAN_IF=net1
+UPLINKS=$(gexec cat /etc/multiwan/uplinks.csv </dev/null)$'\n'
 
 # ---------------- التحقق ----------------
 step "التحقق من اللوحة"
