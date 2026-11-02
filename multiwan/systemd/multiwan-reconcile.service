@@ -1,0 +1,5 @@
+[Unit]
+Description=Rebuild ECMP default route from live PPPoE links
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/multiwan-route.sh

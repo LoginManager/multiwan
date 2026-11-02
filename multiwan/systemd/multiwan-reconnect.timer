@@ -1,0 +1,7 @@
+[Unit]
+Description=MultiWAN scheduled reconnect check every minute
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+[Install]
+WantedBy=timers.target

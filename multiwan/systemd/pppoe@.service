@@ -1,0 +1,10 @@
+[Unit]
+Description=PPPoE line %i
+After=macvlan.service
+Requires=macvlan.service
+[Service]
+ExecStart=/usr/local/sbin/pppoe-line.sh %i
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

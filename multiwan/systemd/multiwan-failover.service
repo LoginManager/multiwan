@@ -1,0 +1,5 @@
+[Unit]
+Description=MultiWAN failover check
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/multiwan-failover.sh

@@ -1,0 +1,7 @@
+[Unit]
+Description=MultiWAN failover check every 5 min
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target

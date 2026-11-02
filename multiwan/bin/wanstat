@@ -1,0 +1,16 @@
+#!/bin/bash
+# wanstat — حالة الخطوط من الطرفية
+D=/etc/multiwan; N=$(grep -c . $D/lines.csv); up=0
+printf '%-6s %-10s %-8s %-10s %-17s %-16s %s\n' LINE STATE UPLINK IFACE MAC IP USER
+for i in $(seq 0 $((N-1))); do
+  IFS=, read -r u p w m upl < <(sed -n "$((i+1))p" $D/lines.csv)
+  m2=$(cat /sys/class/net/mv$i/address 2>/dev/null || echo -)
+  link=$(ip -o link show mv$i 2>/dev/null | sed -n 's/^[0-9]*: mv[0-9]*@\([^:]*\):.*/\1/p'); link=${link:--}
+  ip=$(ip -4 -o addr show dev ppp$i 2>/dev/null | awk '{print $4}')
+  if [ -n "$ip" ]; then st=UP; up=$((up+1))
+  elif systemctl is-active -q pppoe@$i; then st=CONNECTING
+  elif systemctl is-enabled -q pppoe@$i 2>/dev/null; then st=DOWN; else st=STOPPED; fi
+  printf 'ppp%-3s %-10s %-8s %-10s %-17s %-16s %s\n' $i $st "${upl:-def}" "$link" "$m2" "${ip:--}" "$u"
+done
+echo "---- $up / $N up"
+ip route show default

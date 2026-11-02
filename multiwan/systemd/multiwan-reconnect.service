@@ -1,0 +1,5 @@
+[Unit]
+Description=MultiWAN scheduled reconnect
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/multiwan-reconnect.sh
