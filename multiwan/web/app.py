@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # MultiWAN web panel — لوحة إدارة خطوط PPPoE (عربي RTL)
-import os, csv, subprocess, time, functools, re, hmac
+import os, csv, subprocess, time, functools, re, hmac, fcntl
 from flask import Flask, request, redirect, Response, render_template_string, jsonify, flash
 
 D = "/etc/multiwan"
@@ -14,6 +14,7 @@ CONF, IFNAMES, LANSH = f"{D}/multiwan.conf", f"{D}/ifnames", "/usr/local/sbin/mu
 IFRE = re.compile(r'^[A-Za-z0-9_.-]+$')
 
 app = Flask(__name__); app.secret_key = os.urandom(24)
+app.jinja_env.filters["human"] = lambda n: human(n or 0)
 
 # ---------------- helpers ----------------
 def auth(f):
@@ -144,8 +145,90 @@ def human(n):
     return f"{n:.1f} PB"
 def fmt_dur(s): s = int(s); return f"{s//3600}س {s%3600//60}د"
 
+# ---------- إجمالي الاستهلاك لكل مستخدم (يبقى عبر إعادة الاتصال) ----------
+USAGE, RUN = f"{STATE}/usage.csv", "/run/multiwan"; UBASE, ULOCK = f"{RUN}/usage-base", "/run/multiwan-usage.lock"
+def read_usage():  # user → [rx, tx, since] للجلسات المنتهية (يكتبه multiwan-usage.sh عند ip-down)
+    out = {}
+    try:
+        for r in csv.reader(open(USAGE)):
+            if len(r) >= 3 and r[0]:
+                out[r[0]] = [int(float(r[1] or 0)), int(float(r[2] or 0)), r[3] if len(r) > 3 else ""]
+    except Exception: pass
+    return out
+def read_ubase():  # unit → (ifindex, rx, tx) عدّاد الجلسة لحظة التصفير
+    out = {}
+    try:
+        for l in open(UBASE):
+            p = l.split()
+            if len(p) == 4: out[int(p[0])] = (p[1], int(p[2]), int(p[3]))
+    except Exception: pass
+    return out
+def ppp_counters(i):  # (ifindex, rx, tx) للجلسة الحالية أو None
+    d = f"/sys/class/net/ppp{i}"
+    try: return (open(d + "/ifindex").read().strip(), int(open(d + "/statistics/rx_bytes").read()), int(open(d + "/statistics/tx_bytes").read()))
+    except Exception: return None
+def session_usage(i, base):  # استهلاك الجلسة الحالية منذ آخر تصفير
+    c = ppp_counters(i)
+    if not c: return 0, 0
+    b = base.get(i)
+    if b and b[0] == c[0]: return max(0, c[1] - b[1]), max(0, c[2] - b[2])
+    return c[1], c[2]
+def usage_reset(users=None):  # None = تصفير الكل
+    os.makedirs(RUN, exist_ok=True); now = time.strftime("%Y-%m-%d %H:%M:%S")
+    with open(ULOCK, "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        U, base, lines = read_usage(), read_ubase(), read_lines()
+        if users is None: U = {}; users = {l["user"] for l in lines}
+        for u in users: U[u] = [0, 0, now]
+        for i, l in enumerate(lines):
+            if l["user"] in users:
+                c = ppp_counters(i)
+                if c: base[i] = c
+                else: base.pop(i, None)
+        with open(USAGE + ".tmp", "w") as f:
+            for u, (rx, tx, since) in U.items(): f.write(f"{u},{rx},{tx},{since}\n")
+        os.replace(USAGE + ".tmp", USAGE)
+        with open(UBASE + ".tmp", "w") as f:
+            for i, (idx, rx, tx) in base.items(): f.write(f"{i} {idx} {rx} {tx}\n")
+        os.replace(UBASE + ".tmp", UBASE)
+
+# ---------- توزيع الأحمال ----------
+LBSYSCTL = "/etc/sysctl.d/91-multiwan-lb.conf"
+LBMODES = {  # الوضع → (الوصف، sysctl)
+    "conn":   ("كل اتصال على حدة — أفضل توزيع (الافتراضي)", {"net.ipv4.fib_multipath_hash_policy": "1"}),
+    "client": ("كل عميل على خط واحد — أفضل توافق مع البنوك/الألعاب/الكابتشا", {"net.ipv4.fib_multipath_hash_policy": "3", "net.ipv4.fib_multipath_hash_fields": "0x0001"}),
+    "pair":   ("كل عميل+موقع على خط واحد — وسط بين الاثنين", {"net.ipv4.fib_multipath_hash_policy": "0"}),
+}
+def rd(p):
+    try: return open(p).read().strip()
+    except Exception: return ""
+def lb_mode():
+    pol = rd("/proc/sys/net/ipv4/fib_multipath_hash_policy")
+    if pol == "3" and int(rd("/proc/sys/net/ipv4/fib_multipath_hash_fields") or "0", 0) == 1: return "client"
+    return {"0": "pair", "1": "conn"}.get(pol, "conn")
+def set_lb_mode(m):
+    kv_ = LBMODES[m][1]
+    for k, v in kv_.items(): sh(f"sysctl -qw {k}={v}")
+    with open(LBSYSCTL, "w") as f: f.write("# طريقة توزيع الأحمال — من اللوحة\n" + "".join(f"{k}={v}\n" for k, v in kv_.items()))
+def lb_info():
+    lines, marks = read_lines(), {}
+    ct = subprocess.run(["conntrack", "-L", "-f", "ipv4"], capture_output=True, text=True) if sh("command -v conntrack") else None
+    if ct is not None:
+        for m in re.findall(r"mark=(\d+)", ct.stdout): marks[int(m)] = marks.get(int(m), 0) + 1
+    rows = []
+    for i, l in enumerate(lines):
+        if not os.path.exists(f"/sys/class/net/ppp{i}") or not sh(f"ip -4 -o addr show dev ppp{i}"): continue
+        w = int(l["weight"]) if str(l["weight"]).isdigit() else 1
+        rows.append({"i": i, "user": l["user"], "uplink": l["uplink"], "w": w, "conns": marks.get(100 + i, 0)})
+    tw, tc = sum(r["w"] for r in rows) or 1, sum(r["conns"] for r in rows)
+    for r in rows: r["exp"] = round(r["w"] * 100 / tw, 1); r["act"] = round(r["conns"] * 100 / tc, 1) if tc else 0
+    nh = sh("ip route show default").count("nexthop") or (1 if sh("ip route show default") else 0)
+    sticky = bool(sh("nft list table ip multiwan 2>/dev/null | head -1"))
+    return {"rows": rows, "total": tc, "untracked": sum(v for k, v in marks.items() if not 100 <= k < 356),
+            "ecmp": nh, "sticky": sticky, "ct": ct is not None, "mode": lb_mode()}
+
 def status():
-    res = []
+    res = []; U, base = read_usage(), read_ubase()
     for i, l in enumerate(read_lines()):
         dev = f"ppp{i}"
         ip = sh(f"ip -4 -o addr show dev {dev} 2>/dev/null | awk '{{print $4}}'")
@@ -164,8 +247,11 @@ def status():
             ds = int(open(f"{STATE}/down-{i}").read()); downfor = fmt_dur(time.time() - ds) if not ip else ""
         except Exception: pass
         state = "UP" if ip else ("CONNECTING" if active else ("STOPPED" if not enabled else "DOWN"))
+        u = U.get(l["user"], [0, 0, ""]); srx, stx = session_usage(i, base) if ip else (0, 0)
+        trx, ttx = u[0] + srx, u[1] + stx
         res.append({"i": i, "user": l["user"], "weight": l["weight"], "mac": mac, "uplink": l["uplink"], "iface": link, "ip": ip or "-",
-                    "state": state, "enabled": enabled, "rx": human(rx), "tx": human(tx), "uptime": up, "downfor": downfor})
+                    "state": state, "enabled": enabled, "rx": human(rx), "tx": human(tx), "uptime": up, "downfor": downfor,
+                    "trx": human(trx), "ttx": human(ttx), "since": u[2], "rx_b": rx, "tx_b": tx, "trx_b": trx, "ttx_b": ttx})
     return res
 
 _last = {}
@@ -255,14 +341,33 @@ PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
 <div class="tbox tot" style="margin-top:12px"><div class="h"><b>الخروج للعملاء (LAN)</b><span><span class="tx" id="l_tx">0</span> / <span class="rx" id="l_rx">0</span> Mbps</span></div><canvas id="c_lan" width="1000" height="170"></canvas></div>
 <div class="tg" id="tg" style="margin-top:12px"></div></div>
 
-<div class="card"><table><thead><tr><th>#</th><th>المستخدم</th><th>المدخل</th><th>الكرت</th><th>MAC</th><th>الوزن</th><th>الحالة</th><th>IP</th><th>مدة الاتصال</th><th>واقع منذ</th><th>تنزيل</th><th>رفع</th><th>إجراءات</th></tr></thead><tbody>
+<div class="card"><table><thead><tr><th>#</th><th>المستخدم</th><th>المدخل</th><th>الكرت</th><th>MAC</th><th>الوزن</th><th>الحالة</th><th>IP</th><th>مدة الاتصال</th><th>واقع منذ</th><th>تنزيل (الجلسة)</th><th>رفع (الجلسة)</th><th>إجمالي تنزيل</th><th>إجمالي رفع</th><th>إجراءات</th></tr></thead><tbody>
 {% for s in st %}<tr id="r{{s.i}}"><td>{{s.i}}</td><td>{{s.user}}</td>
 <td><form class="inline" method="post" action="/set-uplink/{{s.i}}"><select name="uplink" onchange="this.form.submit()" style="padding:3px">{% for u in ups %}<option value="{{u.name}}" {% if s.uplink==u.name or (not s.uplink and loop.first) %}selected{% endif %}>{{u.name}}</option>{% endfor %}</select></form></td>
 <td class="muted">{{s.iface}}</td><td><span class="mac">{{s.mac}}</span></td><td>{{s.weight}}</td><td class="state {{s.state}}">{{s.state}}</td><td class="ip">{{s.ip}}</td><td class="up">{{s.uptime}}</td><td class="df">{{s.downfor}}</td><td class="rx">{{s.rx}}</td><td class="tx">{{s.tx}}</td>
+<td class="trx rx" title="منذ {{s.since or 'البداية'}}">{{s.trx}}</td><td class="ttx tx" title="منذ {{s.since or 'البداية'}}">{{s.ttx}}</td>
 <td>{% if s.enabled %}<form class="inline" method="post" action="/stop/{{s.i}}"><button class="orange">إيقاف</button></form>{% else %}<form class="inline" method="post" action="/start/{{s.i}}"><button class="green">تشغيل</button></form>{% endif %}
 <form class="inline" method="post" action="/restart/{{s.i}}"><button class="gray">إعادة</button></form> <a class="btn" href="/edit/{{s.i}}">تعديل</a> <a class="btn" href="/log/{{s.i}}">سجل</a>
+<form class="inline" method="post" action="/usage-reset/{{s.i}}" onsubmit="return confirm('تصفير إجمالي {{s.user}}؟')"><button class="gray" title="تصفير الإجمالي">تصفير</button></form>
 <form class="inline" method="post" action="/delete/{{s.i}}" onsubmit="return confirm('حذف الخط {{s.user}}؟')"><button class="red">حذف</button></form></td></tr>{% endfor %}
-</tbody></table></div>
+</tbody><tfoot><tr style="font-weight:bold;background:#0f172a"><td colspan="10">الإجمالي للكل</td>
+<td class="rx" id="sum_rx">{{st|sum(attribute='rx_b')|human}}</td><td class="tx" id="sum_tx">{{st|sum(attribute='tx_b')|human}}</td>
+<td class="rx" id="sum_trx">{{st|sum(attribute='trx_b')|human}}</td><td class="tx" id="sum_ttx">{{st|sum(attribute='ttx_b')|human}}</td>
+<td><form class="inline" method="post" action="/usage-reset-all" onsubmit="return confirm('تصفير الإجمالي لكل المستخدمين؟')"><button class="orange">تصفير الكل</button></form></td></tr></tfoot></table>
+<p class="muted">الإجمالي = كل الجلسات منذ آخر تصفير (يبقى بعد انقطاع الخط وإعادة الاتصال). مرّر الماوس على الرقم لترى تاريخ التصفير.</p></div>
+
+<div class="card" id="lb"><h3>توزيع الأحمال</h3>
+<p>خطوط في المسار الموزّع (ECMP): <b id="lb_ecmp">{{lb.ecmp}}</b> &nbsp;|&nbsp; ثبات الاتصالات على خطها:
+{% if lb.sticky %}<span class="UP">مفعّل</span>{% else %}<span class="DOWN">غير مفعّل — نفّذ multiwan-update</span>{% endif %}
+&nbsp;|&nbsp; الاتصالات النشطة: <b id="lb_total">{{lb.total}}</b></p>
+{% if not lb.ct %}<p class="DOWN">أداة conntrack غير مثبتة — نفّذ: apt install conntrack (أو multiwan-update)</p>{% endif %}
+<table><thead><tr><th>الخط</th><th>المستخدم</th><th>المدخل</th><th>الوزن</th><th>المتوقع</th><th>الاتصالات</th><th>الفعلي</th><th style="width:30%"></th></tr></thead><tbody id="lb_rows">
+{% for r in lb.rows %}<tr><td>ppp{{r.i}}</td><td>{{r.user}}</td><td>{{r.uplink or '—'}}</td><td>{{r.w}}</td><td>{{r.exp}}%</td><td>{{r.conns}}</td><td>{{r.act}}%</td>
+<td><div style="background:#334155;border-radius:4px;height:10px;position:relative"><div style="background:#16a34a;height:10px;border-radius:4px;width:{{[r.act*2,100]|min}}%"></div><div style="position:absolute;top:-3px;height:16px;border-left:2px solid #f59e0b;left:{{[r.exp*2,100]|min}}%"></div></div></td></tr>{% endfor %}
+</tbody></table>
+<p class="muted">الشريط الأخضر = النسبة الفعلية، الخط البرتقالي = المتوقع حسب الوزن (المقياس ×2). التوزيع بعدد الاتصالات وليس بالسرعة، ويقترب من المتوقع كلما زاد عدد العملاء والاتصالات.</p>
+<form method="post" action="/lb-mode" class="inline">طريقة التوزيع: <select name="mode">{% for k, v in lbmodes.items() %}<option value="{{k}}" {% if lb.mode==k %}selected{% endif %}>{{v[0]}}</option>{% endfor %}</select> <button>حفظ</button></form>
+<p class="muted">"كل عميل على خط واحد" يمنع مشاكل المواقع التي ترفض تغيّر الـIP (بنوك، ألعاب، كابتشا)، لكن العميل الواحد لا يستفيد من أكثر من خط.</p></div>
 
 <div class="card" id="net"><h3>الشبكة — كرت الخروج للعملاء والإدارة</h3>
 <table><thead><tr><th></th><th>الكرت</th><th>Proxmox</th><th>IP</th><th>MAC</th><th>الحالة</th><th>استقبال</th><th>إرسال</th></tr></thead><tbody>
@@ -346,11 +451,16 @@ PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
 {% for f in failed %}<tr><td>{{f.when}}</td><td>{{f.idx}}</td><td>{{f.user}}</td><td><form class="inline" method="post" action="/failed-restore/{{loop.index0}}"><button class="gray">إرجاع للاحتياط</button></form> <form class="inline" method="post" action="/failed-del/{{loop.index0}}"><button class="red">مسح</button></form></td></tr>{% endfor %}</tbody></table></div>
 
 <script>
+function hb(n){const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return n.toFixed(1)+' '+u[i];}
 async function refresh(){try{const r=await fetch('/api/status');const d=await r.json();let up=0;
 for(const s of d){const tr=document.getElementById('r'+s.i);if(!tr)continue;const st=tr.querySelector('.state');st.textContent=s.state;st.className='state '+s.state;
-for(const k of ['ip','up','df','rx','tx']){const e=tr.querySelector('.'+k);if(e)e.textContent=s[{ip:'ip',up:'uptime',df:'downfor',rx:'rx',tx:'tx'}[k]];}if(s.state=='UP')up++;}
+for(const k of ['ip','up','df','rx','tx','trx','ttx']){const e=tr.querySelector('td.'+k);if(e)e.textContent=s[{ip:'ip',up:'uptime',df:'downfor',rx:'rx',tx:'tx',trx:'trx',ttx:'ttx'}[k]];}if(s.state=='UP')up++;}
+for(const k of ['rx','tx','trx','ttx']){const e=document.getElementById('sum_'+k);if(e)e.textContent=hb(d.reduce((a,s)=>a+(s[k+'_b']||0),0));}
 document.getElementById('sum').textContent='الخطوط الشغّالة: '+up+' / '+d.length;}catch(e){}}
 refresh();setInterval(refresh,5000);
+async function lbtick(){try{const d=await (await fetch('/api/lb')).json();document.getElementById('lb_ecmp').textContent=d.ecmp;document.getElementById('lb_total').textContent=d.total;
+document.getElementById('lb_rows').innerHTML=d.rows.map(r=>`<tr><td>ppp${r.i}</td><td>${r.user}</td><td>${r.uplink||'—'}</td><td>${r.w}</td><td>${r.exp}%</td><td>${r.conns}</td><td>${r.act}%</td><td><div style="background:#334155;border-radius:4px;height:10px;position:relative"><div style="background:#16a34a;height:10px;border-radius:4px;width:${Math.min(r.act*2,100)}%"></div><div style="position:absolute;top:-3px;height:16px;border-left:2px solid #f59e0b;left:${Math.min(r.exp*2,100)}%"></div></div></td></tr>`).join('');}catch(e){}}
+setInterval(lbtick,10000);
 const N=120,HIST={};let ttimer=null;function hist(k){return HIST[k]||(HIST[k]=[]);}function push(k,rx,tx){const h=hist(k);h.push([rx,tx]);if(h.length>N)h.shift();}
 function wdraw(id,h){const c=document.getElementById(id);if(!c)return;const g=c.getContext('2d'),W=c.width,H=c.height;g.fillStyle='#fff';g.fillRect(0,0,W,H);
 const sel=document.getElementById('tscale').value;let m=1;for(const v of h)m=Math.max(m,v[0],v[1]);const sc=sel==='auto'?Math.max(1,Math.ceil(m/5)*5):parseFloat(sel);
@@ -389,11 +499,20 @@ def index():
             try: d = int(open(f"{STATE}/next-{i}").read()); nexts.append({"i": i, "user": l["user"], "left": fmt_dur(max(0, d - time.time()))})
             except Exception: nexts.append({"i": i, "user": l["user"], "left": "—"})
     return render_template_string(PAGE, st=status(), ups=uplinks(), free=free_ifaces(), res=read_csv5(RES), failed=read_failed(),
-                                  fo=fo_conf(), rc=rc, rc_state=rcs, nexts=nexts, net=net_info(), admin_user=creds()[0])
+                                  fo=fo_conf(), rc=rc, rc_state=rcs, nexts=nexts, net=net_info(), admin_user=creds()[0], lb=lb_info(), lbmodes=LBMODES)
 
 @app.route("/api/status")
 @auth
 def api_status(): return jsonify(status())
+@app.route("/api/lb")
+@auth
+def api_lb(): return jsonify(lb_info())
+@app.route("/lb-mode", methods=["POST"])
+@auth
+def lb_mode_set():
+    m = request.form.get("mode", "")
+    if m in LBMODES: set_lb_mode(m); flash("طريقة التوزيع: " + LBMODES[m][0] + " — تُطبَّق على الاتصالات الجديدة")
+    return redirect("/#lb")
 @app.route("/api/traffic")
 @auth
 def api_traffic(): return jsonify(traffic())
@@ -480,6 +599,17 @@ def lan_set():
         flash("قيم غير صالحة — مثال: 192.168.121.1/24"); return redirect("/#net")
     r = subprocess.run([LANSH, i, ip], capture_output=True, text=True); flash((r.stdout + r.stderr).strip() or "تم")
     return redirect("/#net")
+
+# --- تصفير الإجمالي ---
+@app.route("/usage-reset/<int:i>", methods=["POST"])
+@auth
+def usage_reset_one(i):
+    l = read_lines()
+    if i < len(l): usage_reset({l[i]["user"]}); flash(f"صُفّر إجمالي {l[i]['user']}")
+    return redirect("/")
+@app.route("/usage-reset-all", methods=["POST"])
+@auth
+def usage_reset_all(): usage_reset(); flash("صُفّر الإجمالي لكل المستخدمين"); return redirect("/")
 
 # --- كلمة السر ---
 @app.route("/password", methods=["POST"])
