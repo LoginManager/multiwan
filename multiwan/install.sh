@@ -89,11 +89,13 @@ printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_confi
 systemctl enable --now ssh >/dev/null 2>&1 || true; systemctl restart ssh || true
 
 # ---------- 4) السكربتات ----------
-install -m 755 $SRC/bin/macvlan-up.sh $SRC/bin/multiwan-apply.sh $SRC/bin/pppoe-line.sh $SRC/bin/multiwan-route.sh $SRC/bin/multiwan-ifnames.sh $SRC/bin/multiwan-lan.sh \
+install -m 755 $SRC/bin/macvlan-up.sh $SRC/bin/multiwan-apply.sh $SRC/bin/pppoe-line.sh $SRC/bin/multiwan-route.sh $SRC/bin/multiwan-ifnames.sh $SRC/bin/multiwan-lan.sh $SRC/bin/multiwan-usage.sh \
                $SRC/bin/multiwan-failover.sh $SRC/bin/multiwan-reconnect.sh /usr/local/sbin/
 install -m 755 $SRC/bin/wanstat $SRC/bin/multiwan-update /usr/local/bin/
 ln -sf /usr/local/sbin/multiwan-route.sh /etc/ppp/ip-up.d/50-multiwan
 ln -sf /usr/local/sbin/multiwan-route.sh /etc/ppp/ip-down.d/50-multiwan
+ln -sf /usr/local/sbin/multiwan-usage.sh /etc/ppp/ip-up.d/60-multiwan-usage
+ln -sf /usr/local/sbin/multiwan-usage.sh /etc/ppp/ip-down.d/60-multiwan-usage
 install -m 644 $SRC/web/app.py /opt/multiwan/app.py
 install -m 644 $SRC/systemd/* /etc/systemd/system/
 
