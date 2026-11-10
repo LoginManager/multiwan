@@ -1,6 +1,6 @@
 # MultiWAN — دمج خطوط PPPoE على Debian/Proxmox
 
-تجميع حتى 100 خط PPPoE في VM واحدة (Debian 12 على Proxmox) بـ `pppd + macvlan + ECMP`، مع لوحة ويب عربية RTL للإدارة.
+تجميع حتى 100 خط PPPoE في VM واحدة (Debian 12 على Proxmox) بـ `pppd + macvlan + ECMP`، مع لوحة ويب عربية RTL للإدارة (تبويبات، بطاقات أرقام، رسوم لحظية، وضع داكن/فاتح).
 
 ## المميزات
 - macvlan بـMAC مستقل لكل خط (قابل للتخصيص)

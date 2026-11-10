@@ -304,189 +304,365 @@ def parse_bulk(text):
     return out
 
 # ---------------- templates ----------------
-CSS = r'''<style>
-body{font-family:Tahoma,Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}
-h1{font-size:20px;margin:0 0 12px}h3{margin-top:0}.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-.card{background:#1e293b;border-radius:10px;padding:14px;margin-bottom:14px;overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:7px 6px;border-bottom:1px solid #334155;text-align:right;white-space:nowrap}
-th{color:#94a3b8;font-weight:normal}.UP{color:#22c55e;font-weight:bold}.DOWN{color:#ef4444;font-weight:bold}.CONNECTING{color:#f59e0b;font-weight:bold}.STOPPED{color:#94a3b8;font-weight:bold}
-button,a.btn{background:#2563eb;color:#fff;border:0;border-radius:6px;padding:6px 10px;cursor:pointer;text-decoration:none;font-size:13px}
-button.red{background:#dc2626}button.gray{background:#475569}button.green{background:#16a34a}button.orange{background:#d97706}
-input,select,textarea{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:7px;font-size:14px}
-textarea{width:100%;direction:ltr}form.inline{display:inline}.flash{background:#14532d;padding:8px 12px;border-radius:6px;margin-bottom:10px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end}
-.muted{color:#94a3b8;font-size:12px}.mac{font-family:monospace;direction:ltr;display:inline-block}#sum{font-size:14px;color:#94a3b8}
-pre{background:#020617;padding:10px;border-radius:6px;overflow:auto;font-size:12px;direction:ltr;text-align:left}a{color:#93c5fd}
-.tg{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px}.tbox{background:#0f172a;border-radius:8px;padding:8px}
-.tbox .h{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}.tbox canvas{width:100%;height:110px;display:block;background:#fff;border-radius:4px}
-.tbox.tot canvas{height:170px}.rx{color:#ef4444;font-weight:bold}.tx{color:#2563eb;font-weight:bold}.off{color:#64748b}
-.tctl{display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:13px;color:#94a3b8}.chip{display:inline-block;background:#334155;border-radius:6px;padding:4px 8px;margin:3px}
-</style>'''
+CSS = r'''<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1120;--panel:#111a2e;--panel2:#0f172a;--line:#1f2b45;--text:#e6edf7;--muted:#8a9ab5;--brand:#3b82f6;--brand2:#6366f1;
+--ok:#22c55e;--bad:#ef4444;--warn:#f59e0b;--idle:#64748b;--rx:#ef4444;--tx:#3b82f6;--grid:#1c2740;--shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.18);--r:14px}
+:root[data-theme=light]{--bg:#f3f6fb;--panel:#ffffff;--panel2:#f7f9fc;--line:#e3e9f2;--text:#0f172a;--muted:#5b6b84;--grid:#eef2f8;--shadow:0 1px 2px rgba(15,23,42,.06),0 8px 24px rgba(15,23,42,.06)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 "IBM Plex Sans Arabic","Segoe UI",Tahoma,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--brand);text-decoration:none}a:hover{text-decoration:underline}
+.ltr{direction:ltr;unicode-bidi:isolate}td.ltr{text-align:right}.num{font-variant-numeric:tabular-nums}.muted{color:var(--muted);font-size:12.5px}
+svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+/* header */
+.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top .in{max-width:1440px;margin:auto;padding:10px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px}
+.logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),var(--brand2));display:grid;place-items:center;color:#fff;box-shadow:var(--shadow)}
+.logo svg{width:20px;height:20px;stroke:#fff}
+.brand small{display:block;font-weight:400;font-size:11.5px;color:var(--muted);margin-top:-3px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;background:var(--panel);border:1px solid var(--line);font-size:13px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.sp{flex:1}
+nav.tabs{max-width:1440px;margin:auto;padding:0 20px;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+nav.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:10px 14px;font:inherit;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;border-radius:0}
+nav.tabs button:hover{color:var(--text)}nav.tabs button.on{color:var(--text);border-bottom-color:var(--brand)}
+main{max-width:1440px;margin:auto;padding:20px}
+.tab{display:none;animation:fade .2s ease}.tab.on{display:block}@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+/* cards */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:18px;overflow:hidden}
+.card>.hd{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.card>.hd h3{margin:0;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}.card>.hd .sp{flex:1}
+.card>.bd{padding:16px 18px}.card>.bd.p0{padding:0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;margin-bottom:18px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.kpi .l{color:var(--muted);font-size:12.5px;display:flex;align-items:center;gap:6px;padding-inline-end:44px}.kpi .v{font-size:26px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums;direction:ltr;text-align:right}
+.kpi .v small{font-size:13px;font-weight:500;color:var(--muted)}.kpi .ic{position:absolute;inset-inline-end:14px;top:14px;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;opacity:.9}
+.kpi .bar{height:6px;border-radius:9px;background:var(--panel2);margin-top:10px;overflow:hidden}.kpi .bar i{display:block;height:100%;background:var(--ok);border-radius:9px;transition:width .4s}
+.c-ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}.c-rx{background:color-mix(in srgb,var(--rx) 15%,transparent);color:var(--rx)}
+.c-tx{background:color-mix(in srgb,var(--tx) 15%,transparent);color:var(--tx)}.c-br{background:color-mix(in srgb,var(--brand2) 15%,transparent);color:var(--brand2)}
+/* tables */
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{position:sticky;top:0;background:var(--panel2);color:var(--muted);font-weight:500;font-size:12px;text-align:right;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+tbody tr:hover{background:color-mix(in srgb,var(--brand) 6%,transparent)}tfoot td{background:var(--panel2);font-weight:600;border-bottom:0}
+.rx{color:var(--rx)}.tx{color:var(--tx)}.b{font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+.badge:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.UP{color:var(--ok)}.DOWN{color:var(--bad)}.CONNECTING{color:var(--warn)}.STOPPED,.UNKNOWN{color:var(--idle)}
+.badge.UP{background:color-mix(in srgb,var(--ok) 14%,transparent)}.badge.DOWN{background:color-mix(in srgb,var(--bad) 14%,transparent)}
+.badge.CONNECTING{background:color-mix(in srgb,var(--warn) 14%,transparent)}.badge.CONNECTING:before{animation:pulse 1s infinite}
+.badge.STOPPED,.badge.UNKNOWN{background:color-mix(in srgb,var(--idle) 16%,transparent)}@keyframes pulse{50%{opacity:.25}}
+.tag{display:inline-block;padding:2px 8px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);font-size:12px}
+/* controls */
+button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--brand);color:#fff;border:1px solid transparent;border-radius:9px;padding:7px 13px;font:inherit;font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;white-space:nowrap;transition:filter .15s,background .15s}
+button:hover,.btn:hover{filter:brightness(1.1);text-decoration:none}
+button.ghost,.btn.ghost{background:var(--panel2);color:var(--text);border-color:var(--line)}button.ghost:hover{background:var(--line)}
+button.green{background:#16a34a}button.red{background:#dc2626}button.orange{background:#d97706}button.gray{background:#475569}
+.ib{width:30px;height:30px;padding:0;border-radius:8px;background:var(--panel2);color:var(--muted);border:1px solid var(--line)}
+.ib:hover{color:var(--text);background:var(--line)}.ib.ok:hover{color:var(--ok)}.ib.warn:hover{color:var(--warn)}.ib.bad:hover{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+.acts{display:flex;gap:5px}form.inline{display:inline}
+input,select,textarea{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:inherit;font-size:13.5px;outline:none;transition:border .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 22%,transparent)}
+select.mini{padding:4px 8px;font-size:12.5px;border-radius:7px}textarea{width:100%;direction:ltr;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--muted)}label.f input,label.f select{color:var(--text)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-items:end}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:18px}
+.search{position:relative}.search input{padding-inline-start:32px;width:240px}.search svg{position:absolute;inset-inline-start:10px;top:50%;transform:translateY(-50%);color:var(--muted)}
+details.box{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);box-shadow:var(--shadow);margin-bottom:18px}
+details.box>summary{cursor:pointer;list-style:none;padding:14px 18px;font-weight:600;display:flex;align-items:center;gap:8px}details.box>summary::-webkit-details-marker{display:none}
+details.box[open]>summary{border-bottom:1px solid var(--line)}details.box>div{padding:16px 18px}
+.sub{font-weight:600;margin:18px 0 10px;font-size:13.5px}.sub:first-child{margin-top:0}
+.drop{border:1.5px dashed var(--line);border-radius:12px;padding:14px;background:var(--panel2)}
+.chip{display:inline-flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:6px 6px 6px 12px;margin:0 0 8px 8px}
+.chip b{font-weight:600}.note{display:flex;gap:10px;padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--brand) 8%,transparent);border:1px solid color-mix(in srgb,var(--brand) 25%,transparent);font-size:13px;margin-bottom:14px}
+.note.bad{background:color-mix(in srgb,var(--bad) 8%,transparent);border-color:color-mix(in srgb,var(--bad) 30%,transparent)}
+.meter{background:var(--panel2);border-radius:6px;height:10px;position:relative;min-width:160px}.meter i{position:absolute;inset-block:0;inset-inline-start:0;background:var(--ok);border-radius:6px}
+.meter b{position:absolute;top:-4px;height:18px;border-inline-start:2px solid var(--warn)}
+/* charts */
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,560px),1fr));gap:18px;margin-bottom:18px}
+.chart .hd .val{font-variant-numeric:tabular-nums;direction:ltr}.chart canvas{width:100%;height:190px;display:block}
+.mini{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}.mini .m{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.mini .m .h{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px}.mini canvas{width:100%;height:70px;display:block}.off{color:var(--idle)}
+.legend{display:flex;gap:14px;font-size:12.5px;color:var(--muted)}.legend span:before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-inline-end:6px;vertical-align:-1px;background:currentColor}
+/* toast */
+.toast{position:fixed;bottom:20px;inset-inline-start:20px;z-index:50;max-width:min(560px,calc(100% - 40px));background:var(--panel);border:1px solid var(--line);border-inline-start:4px solid var(--brand);box-shadow:0 12px 32px rgba(0,0,0,.35);border-radius:12px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;animation:fade .25s}
+.toast button{background:none;color:var(--muted);padding:0 4px}
+pre{background:var(--panel2);border:1px solid var(--line);padding:14px;border-radius:12px;overflow:auto;font:12.5px/1.55 ui-monospace,Consolas,monospace;direction:ltr;text-align:left;margin:0;max-height:75vh}
+.mac{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;direction:ltr;display:inline-block}
+@media (max-width:1180px){.hm{display:none}}
+@media (max-width:700px){main{padding:12px}.top .in{padding:10px 12px}.search input{width:100%}.kpi .v{font-size:22px}}
+</style>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('mw_theme')||'dark'}catch(e){}</script>'''
+
+# أيقونات SVG مضمّنة (بدون إنترنت)
+_I = {
+ "logo": '<path d="M4 12h4l3-8 4 16 3-8h2"/>',
+ "home": '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
+ "lines": '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M8.5 12a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="16" r="1.5"/>',
+ "lb": '<path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.17-2.83L3 3"/><path d="M15 9l6-6"/>',
+ "net": '<rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M12 8v4M5 16v-4h14v4"/>',
+ "box": '<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
+ "cog": '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+ "down": '<path d="M12 5v14M5 12l7 7 7-7"/>', "up": '<path d="M12 19V5M5 12l7-7 7 7"/>',
+ "power": '<path d="M18.4 6.6a9 9 0 1 1-12.8 0"/><path d="M12 2v10"/>', "play": '<path d="M6 4l14 8-14 8z"/>',
+ "restart": '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>', "edit": '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+ "log": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/>',
+ "zero": '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l2 2"/>',
+ "trash": '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>', "search": '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+ "moon": '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>', "route": '<circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/>',
+ "plus": '<path d="M12 5v14M5 12h14"/>', "shield": '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', "link": '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+ "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', "x": '<path d="M18 6L6 18M6 6l12 12"/>', "check": '<path d="M20 6L9 17l-5-5"/>',
+ "upload": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/>', "back": '<path d="M5 12h14M13 5l7 7-7 7"/>',
+}
+def icon(n, cls="i"): return f'<svg class="{cls}" viewBox="0 0 24 24">{_I[n]}</svg>'
+
+def _hdr(sub="", extra="", nav=""):
+    return ('''<header class="top"><div class="in"><div class="brand"><div class="logo">''' + icon("logo") + '''</div><div>MultiWAN<small>''' + sub +
+            '''</small></div></div>''' + extra + '''<span class="sp"></span>
+<button class="ib" type="button" title="الوضع الفاتح/الداكن" onclick="let t=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=t;try{localStorage.setItem('mw_theme',t)}catch(e){};if(window.redraw)redraw()">''' + icon("moon") + '''</button>
+</div>''' + nav + '''</header>''')
+
+TOAST = r'''{% with m = get_flashed_messages() %}{% if m %}<div class="toast" id="toast"><div style="flex:1">{{ m[0] }}</div><button type="button" onclick="this.parentNode.remove()">''' + icon("x") + r'''</button></div>
+<script>setTimeout(()=>{const t=document.getElementById('toast');if(t)t.remove()},7000)</script>{% endif %}{% endwith %}'''
+
+NAV = r'''<nav class="tabs" id="tabs">
+<button data-t="ov">''' + icon("home") + r'''نظرة عامة</button><button data-t="ln">''' + icon("lines") + r'''الخطوط <span class="tag num">{{st|length}}</span></button>
+<button data-t="lbt">''' + icon("lb") + r'''توزيع الأحمال</button><button data-t="nw">''' + icon("net") + r'''الشبكة والمداخل</button>
+<button data-t="rs">''' + icon("box") + r'''الاحتياط <span class="tag num">{{res|length}}</span></button><button data-t="cf">''' + icon("cog") + r'''الإعدادات</button>
+</nav>'''
 
 PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MultiWAN</title>''' + CSS + r'''</head><body>
-<h1>MultiWAN — إدارة خطوط PPPoE</h1>
-{% with m = get_flashed_messages() %}{% if m %}<div class="flash">{{ m[0] }}</div>{% endif %}{% endwith %}
-<div class="bar"><span id="sum">—</span>
- <form class="inline" method="post" action="/restart-all" onsubmit="return confirm('إعادة تشغيل كل الخطوط؟')"><button class="gray">إعادة تشغيل الكل</button></form>
- <form class="inline" method="post" action="/start-all"><button class="green">تشغيل الكل</button></form>
- <form class="inline" method="post" action="/stop-all" onsubmit="return confirm('إيقاف كل الخطوط؟')"><button class="orange">إيقاف الكل</button></form>
- <form class="inline" method="post" action="/apply"><button>تطبيق الإعدادات</button></form>
- <button type="button" id="tbtn" onclick="toggleTraffic()">الترافيك ▾</button>
- <a class="btn" href="/routes">جدول التوجيه</a></div>
+''' + _hdr("إدارة خطوط PPPoE", '''<span class="pill"><span class="dot" id="hdot"></span><span id="sum">—</span></span>
+<span class="pill num"><span class="rx">''' + icon("down") + '''</span><span class="ltr" id="h_rx">0</span><span class="tx">''' + icon("up") + '''</span><span class="ltr" id="h_tx">0</span><span class="muted">Mbps</span></span>''', NAV) + r'''
 
-<div class="card" id="tcard" style="display:none">
-<div class="tctl"><span id="tts"></span> &nbsp; <span class="rx">■ Rx</span> تنزيل &nbsp; <span class="tx">■ Tx</span> رفع &nbsp; | المقياس:
-<select id="tscale" onchange="localStorage.setItem('mw_scale',this.value)"><option value="auto">تلقائي</option><option value="10">10M</option><option value="20">20M</option><option value="50">50M</option><option value="100">100M</option><option value="200">200M</option></select></div>
-<div class="tbox tot"><div class="h"><b>الإجمالي (كل الخطوط)</b><span><span class="tx" id="t_tx">0</span> / <span class="rx" id="t_rx">0</span> Mbps</span></div><canvas id="c_tot" width="1000" height="170"></canvas></div>
-<div class="tbox tot" style="margin-top:12px"><div class="h"><b>الخروج للعملاء (LAN)</b><span><span class="tx" id="l_tx">0</span> / <span class="rx" id="l_rx">0</span> Mbps</span></div><canvas id="c_lan" width="1000" height="170"></canvas></div>
-<div class="tg" id="tg" style="margin-top:12px"></div></div>
+<main>
 
-<div class="card"><table><thead><tr><th>#</th><th>المستخدم</th><th>المدخل</th><th>الكرت</th><th>MAC</th><th>الوزن</th><th>الحالة</th><th>IP</th><th>مدة الاتصال</th><th>واقع منذ</th><th>تنزيل (الجلسة)</th><th>رفع (الجلسة)</th><th>إجمالي تنزيل</th><th>إجمالي رفع</th><th>إجراءات</th></tr></thead><tbody>
-{% for s in st %}<tr id="r{{s.i}}"><td>{{s.i}}</td><td>{{s.user}}</td>
-<td><form class="inline" method="post" action="/set-uplink/{{s.i}}"><select name="uplink" onchange="this.form.submit()" style="padding:3px">{% for u in ups %}<option value="{{u.name}}" {% if s.uplink==u.name or (not s.uplink and loop.first) %}selected{% endif %}>{{u.name}}</option>{% endfor %}</select></form></td>
-<td class="muted">{{s.iface}}</td><td><span class="mac">{{s.mac}}</span></td><td>{{s.weight}}</td><td class="state {{s.state}}">{{s.state}}</td><td class="ip">{{s.ip}}</td><td class="up">{{s.uptime}}</td><td class="df">{{s.downfor}}</td><td class="rx">{{s.rx}}</td><td class="tx">{{s.tx}}</td>
-<td class="trx rx" title="منذ {{s.since or 'البداية'}}">{{s.trx}}</td><td class="ttx tx" title="منذ {{s.since or 'البداية'}}">{{s.ttx}}</td>
-<td>{% if s.enabled %}<form class="inline" method="post" action="/stop/{{s.i}}"><button class="orange">إيقاف</button></form>{% else %}<form class="inline" method="post" action="/start/{{s.i}}"><button class="green">تشغيل</button></form>{% endif %}
-<form class="inline" method="post" action="/restart/{{s.i}}"><button class="gray">إعادة</button></form> <a class="btn" href="/edit/{{s.i}}">تعديل</a> <a class="btn" href="/log/{{s.i}}">سجل</a>
-<form class="inline" method="post" action="/usage-reset/{{s.i}}" onsubmit="return confirm('تصفير إجمالي {{s.user}}؟')"><button class="gray" title="تصفير الإجمالي">تصفير</button></form>
-<form class="inline" method="post" action="/delete/{{s.i}}" onsubmit="return confirm('حذف الخط {{s.user}}؟')"><button class="red">حذف</button></form></td></tr>{% endfor %}
-</tbody><tfoot><tr style="font-weight:bold;background:#0f172a"><td colspan="10">الإجمالي للكل</td>
-<td class="rx" id="sum_rx">{{st|sum(attribute='rx_b')|human}}</td><td class="tx" id="sum_tx">{{st|sum(attribute='tx_b')|human}}</td>
-<td class="rx" id="sum_trx">{{st|sum(attribute='trx_b')|human}}</td><td class="tx" id="sum_ttx">{{st|sum(attribute='ttx_b')|human}}</td>
-<td><form class="inline" method="post" action="/usage-reset-all" onsubmit="return confirm('تصفير الإجمالي لكل المستخدمين؟')"><button class="orange">تصفير الكل</button></form></td></tr></tfoot></table>
-<p class="muted">الإجمالي = كل الجلسات منذ آخر تصفير (يبقى بعد انقطاع الخط وإعادة الاتصال). مرّر الماوس على الرقم لترى تاريخ التصفير.</p></div>
+<!-- ============ نظرة عامة ============ -->
+<section class="tab" data-tab="ov">
+<div class="kpis">
+ <div class="kpi"><div class="ic c-ok">''' + icon("lines") + r'''</div><div class="l">الخطوط المتصلة</div><div class="v"><span id="k_up">{{st|selectattr('state','equalto','UP')|list|length}}</span> <small>/ {{st|length}}</small></div><div class="bar"><i id="k_upbar" style="width:{{ ((st|selectattr('state','equalto','UP')|list|length) * 100 / (st|length or 1))|round }}%"></i></div></div>
+ <div class="kpi"><div class="ic c-rx">''' + icon("down") + r'''</div><div class="l">التنزيل الآن</div><div class="v"><span id="k_rx">0</span> <small>Mbps</small></div></div>
+ <div class="kpi"><div class="ic c-tx">''' + icon("up") + r'''</div><div class="l">الرفع الآن</div><div class="v"><span id="k_tx">0</span> <small>Mbps</small></div></div>
+ <div class="kpi"><div class="ic c-rx">''' + icon("down") + r'''</div><div class="l">إجمالي التنزيل</div><div class="v" id="k_trx">{{st|sum(attribute='trx_b')|human}}</div></div>
+ <div class="kpi"><div class="ic c-tx">''' + icon("up") + r'''</div><div class="l">إجمالي الرفع</div><div class="v" id="k_ttx">{{st|sum(attribute='ttx_b')|human}}</div></div>
+ <div class="kpi"><div class="ic c-br">''' + icon("lb") + r'''</div><div class="l">الاتصالات النشطة</div><div class="v" id="k_conn">{{lb.total}}</div></div>
+</div>
+<div class="charts">
+ <div class="card chart"><div class="hd"><h3>''' + icon("lines") + r'''الإجمالي — كل الخطوط</h3><span class="sp"></span><span class="val"><span class="tx" id="t_tx">0</span> / <span class="rx" id="t_rx">0</span> Mbps</span></div><div class="bd"><canvas id="c_tot" width="1000" height="190"></canvas></div></div>
+ <div class="card chart"><div class="hd"><h3>''' + icon("net") + r'''الخروج للعملاء (LAN)</h3><span class="sp"></span><span class="val"><span class="tx" id="l_tx">0</span> / <span class="rx" id="l_rx">0</span> Mbps</span></div><div class="bd"><canvas id="c_lan" width="1000" height="190"></canvas></div></div>
+</div>
+<div class="card"><div class="hd"><h3>''' + icon("lb") + r'''الترافيك لكل خط</h3><span class="sp"></span><span class="legend"><span class="rx">تنزيل</span><span class="tx">رفع</span></span>
+<span class="muted" id="tts"></span><select id="tscale" class="mini" onchange="try{localStorage.setItem('mw_scale',this.value)}catch(e){};redraw()"><option value="auto">مقياس تلقائي</option><option value="10">10M</option><option value="20">20M</option><option value="50">50M</option><option value="100">100M</option><option value="200">200M</option></select></div>
+<div class="bd"><div class="mini" id="tg"></div></div></div>
+</section>
 
-<div class="card" id="lb"><h3>توزيع الأحمال</h3>
-<p>خطوط في المسار الموزّع (ECMP): <b id="lb_ecmp">{{lb.ecmp}}</b> &nbsp;|&nbsp; ثبات الاتصالات على خطها:
-{% if lb.sticky %}<span class="UP">مفعّل</span>{% else %}<span class="DOWN">غير مفعّل — نفّذ multiwan-update</span>{% endif %}
-&nbsp;|&nbsp; الاتصالات النشطة: <b id="lb_total">{{lb.total}}</b></p>
-{% if not lb.ct %}<p class="DOWN">أداة conntrack غير مثبتة — نفّذ: apt install conntrack (أو multiwan-update)</p>{% endif %}
-<table><thead><tr><th>الخط</th><th>المستخدم</th><th>المدخل</th><th>الوزن</th><th>المتوقع</th><th>الاتصالات</th><th>الفعلي</th><th style="width:30%"></th></tr></thead><tbody id="lb_rows">
-{% for r in lb.rows %}<tr><td>ppp{{r.i}}</td><td>{{r.user}}</td><td>{{r.uplink or '—'}}</td><td>{{r.w}}</td><td>{{r.exp}}%</td><td>{{r.conns}}</td><td>{{r.act}}%</td>
-<td><div style="background:#334155;border-radius:4px;height:10px;position:relative"><div style="background:#16a34a;height:10px;border-radius:4px;width:{{[r.act*2,100]|min}}%"></div><div style="position:absolute;top:-3px;height:16px;border-left:2px solid #f59e0b;left:{{[r.exp*2,100]|min}}%"></div></div></td></tr>{% endfor %}
-</tbody></table>
-<p class="muted">الشريط الأخضر = النسبة الفعلية، الخط البرتقالي = المتوقع حسب الوزن (المقياس ×2). التوزيع بعدد الاتصالات وليس بالسرعة، ويقترب من المتوقع كلما زاد عدد العملاء والاتصالات.</p>
-<form method="post" action="/lb-mode" class="inline">طريقة التوزيع: <select name="mode">{% for k, v in lbmodes.items() %}<option value="{{k}}" {% if lb.mode==k %}selected{% endif %}>{{v[0]}}</option>{% endfor %}</select> <button>حفظ</button></form>
-<p class="muted">"كل عميل على خط واحد" يمنع مشاكل المواقع التي ترفض تغيّر الـIP (بنوك، ألعاب، كابتشا)، لكن العميل الواحد لا يستفيد من أكثر من خط.</p></div>
+<!-- ============ الخطوط ============ -->
+<section class="tab" data-tab="ln">
+<div class="card"><div class="hd"><h3>''' + icon("lines") + r'''خطوط PPPoE</h3>
+<div class="search">''' + icon("search") + r'''<input id="q" placeholder="بحث: مستخدم، IP، مدخل…" oninput="filt()"></div><span class="sp"></span>
+<form class="inline" method="post" action="/start-all"><button class="ghost">''' + icon("play") + r'''تشغيل الكل</button></form>
+<form class="inline" method="post" action="/restart-all" onsubmit="return confirm('إعادة تشغيل كل الخطوط؟')"><button class="ghost">''' + icon("restart") + r'''إعادة الكل</button></form>
+<form class="inline" method="post" action="/stop-all" onsubmit="return confirm('إيقاف كل الخطوط؟')"><button class="ghost">''' + icon("power") + r'''إيقاف الكل</button></form>
+<form class="inline" method="post" action="/apply"><button>''' + icon("check") + r'''تطبيق الإعدادات</button></form></div>
+<div class="bd p0 tw"><table><thead><tr><th>#</th><th>المستخدم</th><th>المدخل / الكرت</th><th class="hm">MAC</th><th class="hm">الوزن</th><th>الحالة</th><th>IP</th><th>المدة</th><th>الجلسة <span class="ltr"><span class="rx">↓</span> / <span class="tx">↑</span></span></th><th>الإجمالي <span class="ltr"><span class="rx">↓</span> / <span class="tx">↑</span></span></th><th>إجراءات</th></tr></thead><tbody id="lt">
+{% for s in st %}<tr id="r{{s.i}}"><td class="muted num">{{s.i}}</td><td class="b ltr">{{s.user}}</td>
+<td><div class="row" style="gap:6px;flex-wrap:nowrap"><form class="inline" method="post" action="/set-uplink/{{s.i}}"><select name="uplink" class="mini" onchange="this.form.submit()">{% for u in ups %}<option value="{{u.name}}" {% if s.uplink==u.name or (not s.uplink and loop.first) %}selected{% endif %}>{{u.name}}</option>{% endfor %}</select></form><span class="muted">{{s.iface}}</span></div></td>
+<td class="hm"><span class="mac">{{s.mac}}</span></td><td class="hm num">{{s.weight}}</td><td><span class="state badge {{s.state}}">{{s.state}}</span></td>
+<td class="ltr num"><span class="f-ip">{{s.ip}}</span></td><td class="num"><span class="f-up">{{s.uptime}}</span><span class="f-df DOWN">{{s.downfor}}</span></td>
+<td class="num ltr"><span class="rx f-rx">{{s.rx}}</span> <span class="muted">/</span> <span class="tx f-tx">{{s.tx}}</span></td>
+<td class="num b ltr" title="منذ {{s.since or 'البداية'}}"><span class="rx f-trx">{{s.trx}}</span> <span class="muted">/</span> <span class="tx f-ttx">{{s.ttx}}</span></td>
+<td><div class="acts">{% if s.enabled %}<form class="inline" method="post" action="/stop/{{s.i}}"><button class="ib warn" title="إيقاف">''' + icon("power") + r'''</button></form>{% else %}<form class="inline" method="post" action="/start/{{s.i}}"><button class="ib ok" title="تشغيل">''' + icon("play") + r'''</button></form>{% endif %}
+<form class="inline" method="post" action="/restart/{{s.i}}"><button class="ib" title="إعادة الاتصال">''' + icon("restart") + r'''</button></form>
+<a class="btn ib" href="/edit/{{s.i}}" title="تعديل">''' + icon("edit") + r'''</a><a class="btn ib" href="/log/{{s.i}}" title="السجل">''' + icon("log") + r'''</a>
+<form class="inline" method="post" action="/usage-reset/{{s.i}}" onsubmit="return confirm('تصفير إجمالي {{s.user}}؟')"><button class="ib" title="تصفير الإجمالي">''' + icon("zero") + r'''</button></form>
+<form class="inline" method="post" action="/delete/{{s.i}}" onsubmit="return confirm('حذف الخط {{s.user}}؟')"><button class="ib bad" title="حذف">''' + icon("trash") + r'''</button></form></div></td></tr>{% endfor %}
+{% if not st %}<tr><td colspan="11" style="text-align:center;padding:30px" class="muted">لا توجد خطوط بعد — أضف من «إضافة خطوط» بالأسفل</td></tr>{% endif %}
+</tbody><tfoot><tr><td colspan="6">الإجمالي للكل</td><td class="hm"></td><td class="hm"></td>
+<td class="num ltr"><span class="rx" id="sum_rx">{{st|sum(attribute='rx_b')|human}}</span> <span class="muted">/</span> <span class="tx" id="sum_tx">{{st|sum(attribute='tx_b')|human}}</span></td>
+<td class="num ltr"><span class="rx" id="sum_trx">{{st|sum(attribute='trx_b')|human}}</span> <span class="muted">/</span> <span class="tx" id="sum_ttx">{{st|sum(attribute='ttx_b')|human}}</span></td>
+<td><form class="inline" method="post" action="/usage-reset-all" onsubmit="return confirm('تصفير الإجمالي لكل المستخدمين؟')"><button class="ghost">''' + icon("zero") + r'''تصفير الكل</button></form></td></tr></tfoot></table></div>
+<div class="bd muted">الإجمالي = كل الجلسات منذ آخر تصفير، ويبقى بعد انقطاع الخط وإعادة الاتصال. مرّر الماوس على الرقم لترى تاريخ التصفير.</div></div>
 
-<div class="card" id="net"><h3>الشبكة — كرت الخروج للعملاء والإدارة</h3>
-<table><thead><tr><th></th><th>الكرت</th><th>Proxmox</th><th>IP</th><th>MAC</th><th>الحالة</th><th>استقبال</th><th>إرسال</th></tr></thead><tbody>
-{% for label, x in [('الخروج للعملاء (LAN)', net.lan), ('الإدارة', net.mgmt)] %}<tr><td><b>{{label}}</b></td><td>{{x.dev}}</td><td class="muted">{{x.note or '—'}}</td>
-<td style="direction:ltr;text-align:right">{{x.ips|join(', ') or '—'}}{% if x.conf_ip and x.conf_ip not in x.ips %} <span class="DOWN">(المضبوط {{x.conf_ip}})</span>{% endif %}</td>
-<td><span class="mac">{{x.mac}}</span></td><td class="{{x.state}}">{{x.state}}</td><td>{{x.rx}}</td><td>{{x.tx}}</td></tr>{% endfor %}
-</tbody></table>
-<form method="post" action="/lan" style="margin-top:10px" onsubmit="return confirm('تطبيق إعداد الخروج للعملاء الآن؟ العملاء يجب أن يستخدموا الـgateway الجديد.')"><div class="grid">
-<label>كرت الخروج للعملاء<br><select name="iface">{% for i in net.choices %}<option {% if i==net.lan.dev %}selected{% endif %}>{{i}}</option>{% endfor %}</select></label>
-<label>IP/الماسك (= gateway العملاء)<br><input name="ip" value="{{net.lan.conf_ip}}" required placeholder="192.168.121.1/24" style="direction:ltr"></label>
-<button class="green">حفظ وتطبيق</button></div></form>
-<p class="muted">يُطبَّق فوراً بدون إعادة إقلاع. الـVLAN يُضبط على الكرت في Proxmox. الكروت المستخدمة كمداخل لا تظهر في القائمة. الإدارة للعرض فقط حتى لا ينقطع الوصول للوحة.</p></div>
-
-<div class="card" id="sec"><h3>الأمان — بيانات دخول اللوحة</h3>
-<form method="post" action="/password" autocomplete="off"><div class="grid">
-<label>اسم المستخدم<br><input name="user" value="{{admin_user}}" required style="direction:ltr"></label>
-<label>كلمة السر الحالية<br><input name="old" type="password" required style="direction:ltr"></label>
-<label>كلمة السر الجديدة<br><input name="new" type="password" required minlength="6" maxlength="64" style="direction:ltr"></label>
-<label>تأكيد الجديدة<br><input name="new2" type="password" required minlength="6" maxlength="64" style="direction:ltr"></label>
-<label><input type="checkbox" name="root" value="1"> نفس الكلمة لـroot (SSH/Console)</label>
-<button class="green">تغيير</button></div></form>
-<p class="muted">6 أحرف على الأقل: حروف إنجليزية وأرقام و . _ @ % + = - . بعد التغيير يطلب المتصفح الدخول بالبيانات الجديدة.</p></div>
-
-<div class="card"><h3>المداخل (كروت الشبكة للدخول PPPoE)</h3>
-<p class="muted">كل مدخل = كرت شبكة في الـVM؛ الـVLAN tag يُضبط على الكرت في Proxmox. الأول هو الافتراضي. الكروت المتاحة الآن: {{free|join(', ') or 'لا يوجد'}}</p>
-{% for u in ups %}<span class="chip"><b>{{u.name}}</b> → {{u.iface}} {% if u.comment %}<span class="muted">({{u.comment}})</span>{% endif %}
-{% if ups|length > 1 %}<form class="inline" method="post" action="/uplink-del/{{u.name}}" onsubmit="return confirm('حذف المدخل {{u.name}}؟ خطوطه تنتقل للافتراضي')"><button class="red" style="padding:2px 6px">×</button></form>{% endif %}</span>{% endfor %}
-<form method="post" action="/uplink-add" style="margin-top:8px"><div class="grid">
-<label>الاسم<br><input name="name" placeholder="wan2" required style="direction:ltr"></label>
-<label>الكرت<br><select name="iface">{% for i in free %}<option>{{i}}</option>{% endfor %}</select></label>
-<label>ملاحظة<br><input name="comment" placeholder="Fiber02 VLAN1105"></label>
-<button class="green">إضافة مدخل</button></div></form></div>
-
-<div class="card"><h3>إضافة خط جديد</h3>
+<details class="box"><summary>''' + icon("plus") + r'''إضافة خطوط</summary><div>
+<div class="sub">خط واحد</div>
 <form method="post" action="/add"><div class="grid">
-<label>المستخدم<br><input name="user" required style="direction:ltr"></label><label>كلمة السر<br><input name="pass" required style="direction:ltr"></label>
-<label>الوزن<br><select name="weight"><option value="1">1 (8M)</option><option value="2" selected>2 (16M)</option><option value="3">3</option><option value="4">4</option></select></label>
-<label>MAC (اختياري)<br><input name="mac" placeholder="تلقائي" style="direction:ltr"></label>
-<label>المدخل<br><select name="uplink">{% for u in ups %}<option value="{{u.name}}">{{u.name}}</option>{% endfor %}</select></label>
-<button class="green">إضافة وتطبيق</button></div></form>
-<p class="muted">دفعة: سطر لكل خط بصيغة user,pass,weight,mac,uplink (الوزن والـMAC والمدخل اختيارية)</p>
-<form method="post" action="/bulk"><textarea name="bulk" rows="4"></textarea><br><button>إضافة الدفعة وتطبيق</button></form>
-<h3 style="margin-top:14px">إضافة عدة خطوط بالعدد</h3>
+<label class="f">المستخدم<input name="user" required class="ltr"></label><label class="f">كلمة السر<input name="pass" required class="ltr"></label>
+<label class="f">الوزن<select name="weight"><option value="1">1 (8M)</option><option value="2" selected>2 (16M)</option><option value="3">3</option><option value="4">4</option></select></label>
+<label class="f">MAC (اختياري)<input name="mac" placeholder="تلقائي" class="ltr"></label>
+<label class="f">المدخل<select name="uplink">{% for u in ups %}<option value="{{u.name}}">{{u.name}}</option>{% endfor %}</select></label>
+<button class="green">''' + icon("plus") + r'''إضافة وتطبيق</button></div></form>
+<div class="sub">دفعة — سطر لكل خط: <span class="ltr">user,pass,weight,mac,uplink</span> <span class="muted">(الوزن والـMAC والمدخل اختيارية)</span></div>
+<form method="post" action="/bulk"><textarea name="bulk" rows="4"></textarea><div class="row" style="margin-top:8px"><button>إضافة الدفعة وتطبيق</button></div></form>
+<div class="sub">عدة خطوط بالعدد</div>
 <form method="post" action="/add-many"><div class="grid">
-<label>العدد<br><input name="count" type="number" min="1" max="200" value="10" required></label>
-<label>قالب المستخدم <span class="muted">({n}=الرقم)</span><br><input name="utpl" value="line{n}@isp" style="direction:ltr" required></label>
-<label>يبدأ من<br><input name="start" type="number" value="11"></label><label>خانات<br><input name="pad" type="number" min="1" max="4" value="2"></label>
-<label>قالب كلمة السر<br><input name="ptpl" value="pass{n}" style="direction:ltr" required></label>
-<label>الوزن<br><select name="weight"><option value="1">1</option><option value="2" selected>2</option></select></label>
-<label>المدخل<br><select name="uplink">{% for u in ups %}<option value="{{u.name}}">{{u.name}}</option>{% endfor %}</select></label>
-<label>بعد الإضافة<br><select name="state"><option value="stopped">موقوف</option><option value="running">شغّال</option></select></label>
-<button class="green">إضافة</button></div></form></div>
+<label class="f">العدد<input name="count" type="number" min="1" max="200" value="10" required></label>
+<label class="f">قالب المستخدم ({n}=الرقم)<input name="utpl" value="line{n}@isp" class="ltr" required></label>
+<label class="f">يبدأ من<input name="start" type="number" value="11"></label><label class="f">خانات<input name="pad" type="number" min="1" max="4" value="2"></label>
+<label class="f">قالب كلمة السر<input name="ptpl" value="pass{n}" class="ltr" required></label>
+<label class="f">الوزن<select name="weight"><option value="1">1</option><option value="2" selected>2</option></select></label>
+<label class="f">المدخل<select name="uplink">{% for u in ups %}<option value="{{u.name}}">{{u.name}}</option>{% endfor %}</select></label>
+<label class="f">بعد الإضافة<select name="state"><option value="stopped">موقوف</option><option value="running">شغّال</option></select></label>
+<button class="green">إضافة</button></div></form>
+</div></details>
+</section>
 
-<div class="card"><h3>جدولة إعادة الاتصال</h3>
+<!-- ============ توزيع الأحمال ============ -->
+<section class="tab" data-tab="lbt">
+<div class="kpis">
+ <div class="kpi"><div class="ic c-br">''' + icon("route") + r'''</div><div class="l">خطوط في المسار الموزّع (ECMP)</div><div class="v" id="lb_ecmp">{{lb.ecmp}}</div></div>
+ <div class="kpi"><div class="ic c-ok">''' + icon("shield") + r'''</div><div class="l">ثبات الاتصالات على خطها</div><div class="v" style="font-size:20px">{% if lb.sticky %}<span class="UP">مفعّل</span>{% else %}<span class="DOWN">غير مفعّل</span>{% endif %}</div></div>
+ <div class="kpi"><div class="ic c-tx">''' + icon("link") + r'''</div><div class="l">الاتصالات النشطة</div><div class="v" id="lb_total">{{lb.total}}</div></div>
+</div>
+{% if not lb.sticky %}<div class="note bad">ثبات الاتصالات غير مفعّل — نفّذ داخل الـVM: <b class="ltr">multiwan-update</b></div>{% endif %}
+{% if not lb.ct %}<div class="note bad">أداة conntrack غير مثبتة — نفّذ: <b class="ltr">apt install conntrack</b> (أو multiwan-update)</div>{% endif %}
+<div class="card" id="lb"><div class="hd"><h3>''' + icon("lb") + r'''التوزيع الفعلي مقابل المتوقع</h3><span class="sp"></span><span class="legend"><span class="UP">الفعلي</span><span style="color:var(--warn)">المتوقع حسب الوزن</span></span></div>
+<div class="bd p0 tw"><table><thead><tr><th>الخط</th><th>المستخدم</th><th>المدخل</th><th>الوزن</th><th>المتوقع</th><th>الاتصالات</th><th>الفعلي</th><th style="width:32%"></th></tr></thead><tbody id="lb_rows">
+{% for r in lb.rows %}<tr><td class="num">ppp{{r.i}}</td><td class="ltr">{{r.user}}</td><td>{{r.uplink or '—'}}</td><td class="num">{{r.w}}</td><td class="num">{{r.exp}}%</td><td class="num">{{r.conns}}</td><td class="num b">{{r.act}}%</td>
+<td><div class="meter"><i style="width:{{[r.act*2,100]|min}}%"></i><b style="inset-inline-start:{{[r.exp*2,100]|min}}%"></b></div></td></tr>{% endfor %}
+{% if not lb.rows %}<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">لا توجد خطوط متصلة الآن</td></tr>{% endif %}
+</tbody></table></div>
+<div class="bd muted">المقياس ×2. التوزيع بعدد الاتصالات وليس بالسرعة، ويقترب من المتوقع كلما زاد عدد العملاء والاتصالات.</div></div>
+<div class="card"><div class="hd"><h3>''' + icon("cog") + r'''طريقة التوزيع</h3></div><div class="bd">
+<form method="post" action="/lb-mode" class="row"><select name="mode">{% for k, v in lbmodes.items() %}<option value="{{k}}" {% if lb.mode==k %}selected{% endif %}>{{v[0]}}</option>{% endfor %}</select><button>حفظ</button></form>
+<p class="muted" style="margin-bottom:0">«كل عميل على خط واحد» يمنع مشاكل المواقع التي ترفض تغيّر الـIP (بنوك، ألعاب، كابتشا)، لكن العميل الواحد لا يستفيد من أكثر من خط. التغيير يُطبَّق على الاتصالات الجديدة.</p></div></div>
+</section>
+
+<!-- ============ الشبكة والمداخل ============ -->
+<section class="tab" data-tab="nw">
+<div class="card" id="net"><div class="hd"><h3>''' + icon("net") + r'''كروت الشبكة — الخروج للعملاء والإدارة</h3></div>
+<div class="bd p0 tw"><table><thead><tr><th></th><th>الكرت</th><th>Proxmox</th><th>IP</th><th>MAC</th><th>الحالة</th><th>استقبال</th><th>إرسال</th></tr></thead><tbody>
+{% for label, x in [('الخروج للعملاء (LAN)', net.lan), ('الإدارة', net.mgmt)] %}<tr><td class="b">{{label}}</td><td><span class="tag">{{x.dev}}</span></td><td class="muted">{{x.note or '—'}}</td>
+<td class="ltr num">{{x.ips|join(', ') or '—'}}{% if x.conf_ip and x.conf_ip not in x.ips %} <span class="DOWN">(المضبوط {{x.conf_ip}})</span>{% endif %}</td>
+<td><span class="mac">{{x.mac}}</span></td><td><span class="badge {{x.state}}">{{x.state}}</span></td><td class="num">{{x.rx}}</td><td class="num">{{x.tx}}</td></tr>{% endfor %}
+</tbody></table></div>
+<div class="bd"><form method="post" action="/lan" onsubmit="return confirm('تطبيق إعداد الخروج للعملاء الآن؟ العملاء يجب أن يستخدموا الـgateway الجديد.')"><div class="grid">
+<label class="f">كرت الخروج للعملاء<select name="iface">{% for i in net.choices %}<option {% if i==net.lan.dev %}selected{% endif %}>{{i}}</option>{% endfor %}</select></label>
+<label class="f">IP/الماسك (= gateway العملاء)<input name="ip" value="{{net.lan.conf_ip}}" required placeholder="192.168.121.1/24" class="ltr"></label>
+<button class="green">حفظ وتطبيق</button></div></form>
+<p class="muted" style="margin-bottom:0">يُطبَّق فوراً بدون إعادة إقلاع. الـVLAN يُضبط على الكرت في Proxmox. الكروت المستخدمة كمداخل لا تظهر في القائمة. الإدارة للعرض فقط حتى لا ينقطع الوصول للوحة.</p></div></div>
+
+<div class="card"><div class="hd"><h3>''' + icon("route") + r'''المداخل — كروت الدخول PPPoE</h3><span class="sp"></span><span class="muted">الأول هو الافتراضي</span></div><div class="bd">
+{% for u in ups %}<span class="chip"><b>{{u.name}}</b><span class="tag">{{u.iface}}</span>{% if u.comment %}<span class="muted">{{u.comment}}</span>{% endif %}
+{% if ups|length > 1 %}<form class="inline" method="post" action="/uplink-del/{{u.name}}" onsubmit="return confirm('حذف المدخل {{u.name}}؟ خطوطه تنتقل للافتراضي')"><button class="ib bad" title="حذف" style="width:24px;height:24px">''' + icon("x") + r'''</button></form>{% endif %}</span>{% endfor %}
+<form method="post" action="/uplink-add" style="margin-top:10px"><div class="grid">
+<label class="f">الاسم<input name="name" placeholder="wan7" required class="ltr"></label>
+<label class="f">الكرت<select name="iface">{% for i in free %}<option>{{i}}</option>{% endfor %}</select></label>
+<label class="f">ملاحظة<input name="comment" placeholder="Fiber02 VLAN1105"></label>
+<button class="green">''' + icon("plus") + r'''إضافة مدخل</button></div></form>
+<p class="muted" style="margin-bottom:0">كل مدخل = كرت شبكة في الـVM، والـVLAN يُضبط على الكرت في Proxmox. الكروت المتاحة الآن: {{free|join(', ') or 'لا يوجد'}}</p></div></div>
+</section>
+
+<!-- ============ الاحتياط ============ -->
+<section class="tab" data-tab="rs">
+<div class="card"><div class="hd"><h3>''' + icon("box") + r'''قائمة الاحتياط <span class="tag num">{{res|length}}</span></h3><span class="sp"></span>
+<form method="post" action="/failover-conf" class="row"><span class="muted">الاستبدال بعد</span><input name="hours" type="number" min="1" value="{{fo.FAILOVER_HOURS}}" style="width:76px"><span class="muted">ساعة بدون IP</span><button class="ghost">حفظ</button></form></div>
+<div class="bd p0 tw"><table><thead><tr><th>#</th><th>المستخدم</th><th>الوزن</th><th>MAC</th><th>المدخل</th><th></th></tr></thead><tbody>
+{% for r in res %}<tr><td class="muted num">{{loop.index0}}</td><td class="ltr b">{{r.user}}</td><td class="num">{{r.weight}}</td><td><span class="mac">{{r.mac or '-'}}</span></td><td>{{r.uplink or '—'}}</td>
+<td><div class="acts"><form class="inline" method="post" action="/reserve-use/{{loop.index0}}"><button class="green">تفعيل كخط الآن</button></form><form class="inline" method="post" action="/reserve-del/{{loop.index0}}"><button class="ib bad" title="حذف">''' + icon("trash") + r'''</button></form></div></td></tr>{% endfor %}
+{% if not res %}<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">القائمة فارغة</td></tr>{% endif %}
+</tbody></table></div>
+<div class="bd"><p class="muted" style="margin-top:0">أي خط مفعّل يبقى بدون IP المدة المحددة يُستبدل بأول خط احتياط، وبياناته القديمة تنتقل للمستبدَلة.</p>
+<div class="split"><form method="post" action="/reserve-upload" enctype="multipart/form-data" class="drop"><div class="sub">''' + icon("upload") + r''' رفع Excel / CSV</div>
+<div class="row"><input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt,.tsv" required><label><input type="radio" name="mode" value="append" checked> إضافة</label><label><input type="radio" name="mode" value="replace"> استبدال الكل</label><button class="green">رفع</button></div>
+<div class="muted" style="margin-top:6px">الأعمدة: المستخدم | كلمة السر | الوزن | MAC | المدخل — صف العناوين اختياري. <a href="/uploads">الملفات المرفوعة</a></div></form>
+<form method="post" action="/reserve-add"><div class="sub">أو سطر لكل خط: <span class="ltr">user,pass,weight,mac,uplink</span></div><textarea name="bulk" rows="3"></textarea><div class="row" style="margin-top:8px"><button>إضافة للاحتياط</button></div></form></div></div></div>
+
+<div class="card"><div class="hd"><h3>''' + icon("clock") + r'''الخطوط المستبدَلة <span class="tag num">{{failed|length}}</span></h3></div>
+<div class="bd p0 tw"><table><thead><tr><th>التاريخ</th><th>كان ppp</th><th>المستخدم</th><th></th></tr></thead><tbody>
+{% for f in failed %}<tr><td class="num">{{f.when}}</td><td class="num">{{f.idx}}</td><td class="ltr">{{f.user}}</td><td><div class="acts"><form class="inline" method="post" action="/failed-restore/{{loop.index0}}"><button class="ghost">إرجاع للاحتياط</button></form><form class="inline" method="post" action="/failed-del/{{loop.index0}}"><button class="ib bad" title="مسح">''' + icon("trash") + r'''</button></form></div></td></tr>{% endfor %}
+{% if not failed %}<tr><td colspan="4" class="muted" style="text-align:center;padding:24px">لا يوجد</td></tr>{% endif %}
+</tbody></table></div></div>
+</section>
+
+<!-- ============ الإعدادات ============ -->
+<section class="tab" data-tab="cf">
+<div class="card"><div class="hd"><h3>''' + icon("restart") + r'''جدولة إعادة الاتصال</h3><span class="sp"></span><span class="tag">{{rc_state}}</span></div><div class="bd">
 <form method="post" action="/reconnect-conf"><div class="grid">
-<label>الوضع<br><select name="mode"><option value="random_each" {% if rc.MODE=='random_each' %}selected{% endif %}>عشوائي مستقل لكل خط</option><option value="cycle" {% if rc.MODE=='cycle' %}selected{% endif %}>دورة لكل الخطوط كل N ساعة</option><option value="off" {% if rc.MODE=='off' %}selected{% endif %}>معطّل</option></select></label>
-<label>أقل مدة (ساعة) — عشوائي<br><input name="minh" type="number" min="0" step="0.5" value="{{rc.MIN_HOURS}}"></label>
-<label>أكبر مدة (ساعة) — عشوائي<br><input name="maxh" type="number" min="0" step="0.5" value="{{rc.MAX_HOURS}}"></label>
-<label>كل كم ساعة — دورة<br><input name="every" type="number" min="1" value="{{rc.EVERY_HOURS}}"></label>
-<label>فاصل بين الخطوط (ث) — دورة<br><input name="spread" type="number" min="0" value="{{rc.SPREAD_SEC}}"></label>
-<label>الخطوط<br><select name="onlyup"><option value="1" {% if rc.ONLY_UP=='1' %}selected{% endif %}>الشغّالة فقط</option><option value="0" {% if rc.ONLY_UP=='0' %}selected{% endif %}>كل المفعّلة</option></select></label>
+<label class="f">الوضع<select name="mode"><option value="random_each" {% if rc.MODE=='random_each' %}selected{% endif %}>عشوائي مستقل لكل خط</option><option value="cycle" {% if rc.MODE=='cycle' %}selected{% endif %}>دورة لكل الخطوط كل N ساعة</option><option value="off" {% if rc.MODE=='off' %}selected{% endif %}>معطّل</option></select></label>
+<label class="f">أقل مدة (ساعة) — عشوائي<input name="minh" type="number" min="0" step="0.5" value="{{rc.MIN_HOURS}}"></label>
+<label class="f">أكبر مدة (ساعة) — عشوائي<input name="maxh" type="number" min="0" step="0.5" value="{{rc.MAX_HOURS}}"></label>
+<label class="f">كل كم ساعة — دورة<input name="every" type="number" min="1" value="{{rc.EVERY_HOURS}}"></label>
+<label class="f">فاصل بين الخطوط (ث) — دورة<input name="spread" type="number" min="0" value="{{rc.SPREAD_SEC}}"></label>
+<label class="f">الخطوط<select name="onlyup"><option value="1" {% if rc.ONLY_UP=='1' %}selected{% endif %}>الشغّالة فقط</option><option value="0" {% if rc.ONLY_UP=='0' %}selected{% endif %}>كل المفعّلة</option></select></label>
 <button>حفظ</button></div></form>
-<p class="muted">الحالة: {{rc_state}} <form class="inline" method="post" action="/reconnect-now"><button class="gray">إعادة الكل الآن</button></form> <form class="inline" method="post" action="/reconnect-reshuffle"><button class="gray">سحب مواعيد جديدة</button></form></p>
-{% if nexts %}<table><thead><tr><th>#</th><th>المستخدم</th><th>الإعادة القادمة بعد</th></tr></thead><tbody>{% for n in nexts %}<tr><td>{{n.i}}</td><td>{{n.user}}</td><td>{{n.left}}</td></tr>{% endfor %}</tbody></table>{% endif %}</div>
+<div class="row" style="margin-top:12px"><form class="inline" method="post" action="/reconnect-now"><button class="ghost">''' + icon("restart") + r'''إعادة الكل الآن</button></form><form class="inline" method="post" action="/reconnect-reshuffle"><button class="ghost">سحب مواعيد جديدة</button></form></div></div>
+{% if nexts %}<div class="bd p0 tw" style="border-top:1px solid var(--line)"><table><thead><tr><th>#</th><th>المستخدم</th><th>الإعادة القادمة بعد</th></tr></thead><tbody>{% for n in nexts %}<tr><td class="num muted">{{n.i}}</td><td class="ltr">{{n.user}}</td><td class="num">{{n.left}}</td></tr>{% endfor %}</tbody></table></div>{% endif %}</div>
 
-<div class="card"><h3>الاستبدال التلقائي — قائمة الاحتياط ({{res|length}})</h3>
-<form method="post" action="/failover-conf" class="inline">المدة قبل الاستبدال: <input name="hours" type="number" min="1" value="{{fo.FAILOVER_HOURS}}" style="width:70px"> ساعة <button>حفظ</button></form>
-<p class="muted">أي خط مفعّل يبقى بدون IP هذه المدة يُستبدل بأول خط احتياط؛ بياناته القديمة تنتقل للمستبدَلة.</p>
-<table><thead><tr><th>#</th><th>المستخدم</th><th>الوزن</th><th>MAC</th><th>المدخل</th><th></th></tr></thead><tbody>
-{% for r in res %}<tr><td>{{loop.index0}}</td><td>{{r.user}}</td><td>{{r.weight}}</td><td><span class="mac">{{r.mac or '-'}}</span></td><td>{{r.uplink or '—'}}</td>
-<td><form class="inline" method="post" action="/reserve-use/{{loop.index0}}"><button class="green">تفعيل كخط الآن</button></form> <form class="inline" method="post" action="/reserve-del/{{loop.index0}}"><button class="red">حذف</button></form></td></tr>{% endfor %}</tbody></table>
-<form method="post" action="/reserve-upload" enctype="multipart/form-data" style="margin:8px 0;padding:10px;border:1px dashed #334155;border-radius:8px">
-<b>رفع Excel / CSV:</b> <input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt,.tsv" required>
-<label><input type="radio" name="mode" value="append" checked> إضافة</label> <label><input type="radio" name="mode" value="replace"> استبدال الكل</label> <button class="green">رفع</button>
-<div class="muted">الأعمدة: المستخدم | كلمة السر | الوزن | MAC | المدخل — صف العناوين اختياري. <a href="/uploads">الملفات المرفوعة</a></div></form>
-<p class="muted">أو سطر لكل خط: user,pass,weight,mac,uplink</p>
-<form method="post" action="/reserve-add"><textarea name="bulk" rows="3"></textarea><br><button>إضافة للاحتياط</button></form></div>
+<div class="card" id="sec"><div class="hd"><h3>''' + icon("shield") + r'''الأمان — بيانات دخول اللوحة</h3></div><div class="bd">
+<form method="post" action="/password" autocomplete="off"><div class="grid">
+<label class="f">اسم المستخدم<input name="user" value="{{admin_user}}" required class="ltr"></label>
+<label class="f">كلمة السر الحالية<input name="old" type="password" required class="ltr"></label>
+<label class="f">كلمة السر الجديدة<input name="new" type="password" required minlength="6" maxlength="64" class="ltr"></label>
+<label class="f">تأكيد الجديدة<input name="new2" type="password" required minlength="6" maxlength="64" class="ltr"></label>
+<label class="row muted"><input type="checkbox" name="root" value="1"> نفس الكلمة لـroot (SSH/Console)</label>
+<button class="green">تغيير</button></div></form>
+<p class="muted" style="margin-bottom:0">6 أحرف على الأقل: حروف إنجليزية وأرقام و . _ @ % + = - . بعد التغيير يطلب المتصفح الدخول بالبيانات الجديدة.</p></div></div>
 
-<div class="card"><h3>الخطوط المستبدَلة ({{failed|length}})</h3>
-<table><thead><tr><th>التاريخ</th><th>كان ppp</th><th>المستخدم</th><th></th></tr></thead><tbody>
-{% for f in failed %}<tr><td>{{f.when}}</td><td>{{f.idx}}</td><td>{{f.user}}</td><td><form class="inline" method="post" action="/failed-restore/{{loop.index0}}"><button class="gray">إرجاع للاحتياط</button></form> <form class="inline" method="post" action="/failed-del/{{loop.index0}}"><button class="red">مسح</button></form></td></tr>{% endfor %}</tbody></table></div>
-
+<div class="card"><div class="hd"><h3>''' + icon("log") + r'''أدوات</h3></div><div class="bd row">
+<a class="btn ghost" href="/routes">''' + icon("route") + r'''جدول التوجيه والسجل</a><a class="btn ghost" href="/uploads">''' + icon("upload") + r'''الملفات المرفوعة</a></div></div>
+</section>
+</main>
+''' + TOAST + r'''
 <script>
+// ---------- التبويبات ----------
+const TABS=[...document.querySelectorAll('.tab')];
+function show(t){TABS.forEach(s=>s.classList.toggle('on',s.dataset.tab===t));document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+ try{localStorage.setItem('mw_tab',t)}catch(e){};if(t==='lbt')lbtick();setTimeout(redraw,30);}
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{show(b.dataset.t);history.replaceState(null,'','#'+b.dataset.t)});
+(function(){const h=location.hash.slice(1);let t=null;if(h){const e=document.getElementById(h);if(e&&e.closest('.tab'))t=e.closest('.tab').dataset.tab;else if(TABS.some(s=>s.dataset.tab===h))t=h;}
+ if(!t){try{t=localStorage.getItem('mw_tab')}catch(e){}}show(TABS.some(s=>s.dataset.tab===t)?t:'ov');})();
+function filt(){const q=document.getElementById('q').value.toLowerCase();document.querySelectorAll('#lt tr[id]').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(q)?'':'none');}
+// ---------- الحالة ----------
 function hb(n){const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return n.toFixed(1)+' '+u[i];}
-async function refresh(){try{const r=await fetch('/api/status');const d=await r.json();let up=0;
-for(const s of d){const tr=document.getElementById('r'+s.i);if(!tr)continue;const st=tr.querySelector('.state');st.textContent=s.state;st.className='state '+s.state;
-for(const k of ['ip','up','df','rx','tx','trx','ttx']){const e=tr.querySelector('td.'+k);if(e)e.textContent=s[{ip:'ip',up:'uptime',df:'downfor',rx:'rx',tx:'tx',trx:'trx',ttx:'ttx'}[k]];}if(s.state=='UP')up++;}
-for(const k of ['rx','tx','trx','ttx']){const e=document.getElementById('sum_'+k);if(e)e.textContent=hb(d.reduce((a,s)=>a+(s[k+'_b']||0),0));}
-document.getElementById('sum').textContent='الخطوط الشغّالة: '+up+' / '+d.length;}catch(e){}}
+const $=id=>document.getElementById(id);
+async function refresh(){try{const d=await (await fetch('/api/status')).json();let up=0;
+for(const s of d){const tr=$('r'+s.i);if(s.state=='UP')up++;if(!tr)continue;const st=tr.querySelector('.state');st.textContent=s.state;st.className='state badge '+s.state;
+for(const k of ['ip','up','df','rx','tx','trx','ttx']){const e=tr.querySelector('.f-'+k);if(e)e.textContent=s[{ip:'ip',up:'uptime',df:'downfor',rx:'rx',tx:'tx',trx:'trx',ttx:'ttx'}[k]];}}
+for(const k of ['rx','tx','trx','ttx']){const v=hb(d.reduce((a,s)=>a+(s[k+'_b']||0),0));const e=$('sum_'+k);if(e)e.textContent=v;if(k[0]=='t'&&$('k_'+k))$('k_'+k).textContent=v;}
+$('sum').textContent=up+' / '+d.length+' متصل';$('k_up').textContent=up;$('k_upbar').style.width=(d.length?up*100/d.length:0)+'%';
+$('hdot').style.background=up==d.length?'var(--ok)':(up?'var(--warn)':'var(--bad)');}catch(e){}}
 refresh();setInterval(refresh,5000);
-async function lbtick(){try{const d=await (await fetch('/api/lb')).json();document.getElementById('lb_ecmp').textContent=d.ecmp;document.getElementById('lb_total').textContent=d.total;
-document.getElementById('lb_rows').innerHTML=d.rows.map(r=>`<tr><td>ppp${r.i}</td><td>${r.user}</td><td>${r.uplink||'—'}</td><td>${r.w}</td><td>${r.exp}%</td><td>${r.conns}</td><td>${r.act}%</td><td><div style="background:#334155;border-radius:4px;height:10px;position:relative"><div style="background:#16a34a;height:10px;border-radius:4px;width:${Math.min(r.act*2,100)}%"></div><div style="position:absolute;top:-3px;height:16px;border-left:2px solid #f59e0b;left:${Math.min(r.exp*2,100)}%"></div></div></td></tr>`).join('');}catch(e){}}
-setInterval(lbtick,10000);
-const N=120,HIST={};let ttimer=null;function hist(k){return HIST[k]||(HIST[k]=[]);}function push(k,rx,tx){const h=hist(k);h.push([rx,tx]);if(h.length>N)h.shift();}
-function wdraw(id,h){const c=document.getElementById(id);if(!c)return;const g=c.getContext('2d'),W=c.width,H=c.height;g.fillStyle='#fff';g.fillRect(0,0,W,H);
-const sel=document.getElementById('tscale').value;let m=1;for(const v of h)m=Math.max(m,v[0],v[1]);const sc=sel==='auto'?Math.max(1,Math.ceil(m/5)*5):parseFloat(sel);
-g.strokeStyle='#e5e7eb';g.lineWidth=1;for(let k=1;k<5;k++){const y=H-H*k/5;g.beginPath();g.moveTo(0,y);g.lineTo(W,y);g.stroke();}for(let k=0;k<W;k+=W/12){g.beginPath();g.moveTo(k,0);g.lineTo(k,H);g.stroke();}
-const bw=W/N;h.forEach((v,i)=>{const x=(N-h.length+i)*bw,yr=H-Math.min(1,v[0]/sc)*H,yt=H-Math.min(1,v[1]/sc)*H;g.fillStyle='#ef4444';g.fillRect(x+bw*.15,yr,bw*.35,H-yr);g.fillStyle='#2563eb';g.fillRect(x+bw*.5,yt,bw*.35,H-yt);});
-g.fillStyle='#374151';g.font='11px Tahoma';g.textAlign='left';g.fillText(sc+' Mbps',4,12);g.fillText((sc/2).toFixed(1),4,H/2+4);}
-function box(l){return `<div class="tbox" id="b${l.i}"><div class="h"><b>ppp${l.i} — ${l.user}</b><span id="v${l.i}"></span></div><canvas id="c${l.i}" width="600" height="110"></canvas></div>`;}
-async function ttick(){try{const r=await fetch('/api/traffic');const d=await r.json();document.getElementById('tts').textContent=d.ts;
-push('tot',d.total.down,d.total.up);wdraw('c_tot',hist('tot'));document.getElementById('t_rx').textContent=d.total.down;document.getElementById('t_tx').textContent=d.total.up;
-if(d.lan){push('lan',d.lan.from_clients,d.lan.to_clients);wdraw('c_lan',hist('lan'));document.getElementById('l_rx').textContent=d.lan.from_clients;document.getElementById('l_tx').textContent=d.lan.to_clients;}
-const tg=document.getElementById('tg');for(const l of d.lines){if(!document.getElementById('b'+l.i))tg.insertAdjacentHTML('beforeend',box(l));const v=document.getElementById('v'+l.i);
-if(l.up){push('l'+l.i,l.down,l.upl);v.innerHTML=`<span class="tx">${l.upl}</span> / <span class="rx">${l.down}</span> Mbps`;}else{push('l'+l.i,0,0);v.innerHTML='<span class="off">غير متصل</span>';}wdraw('c'+l.i,hist('l'+l.i));}}catch(e){}}
-function toggleTraffic(){const c=document.getElementById('tcard'),b=document.getElementById('tbtn');if(c.style.display==='none'){c.style.display='block';b.textContent='الترافيك ▴';ttick();ttimer=setInterval(ttick,1000);localStorage.setItem('mw_traffic','1');}else{c.style.display='none';b.textContent='الترافيك ▾';clearInterval(ttimer);localStorage.removeItem('mw_traffic');}}
-document.getElementById('tscale').value=localStorage.getItem('mw_scale')||'auto';if(localStorage.getItem('mw_traffic'))toggleTraffic();
+// ---------- توزيع الأحمال ----------
+async function lbtick(){try{const d=await (await fetch('/api/lb')).json();$('lb_ecmp').textContent=d.ecmp;$('lb_total').textContent=d.total;$('k_conn').textContent=d.total;
+if(!d.rows.length){$('lb_rows').innerHTML='<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">لا توجد خطوط متصلة الآن</td></tr>';return;}
+$('lb_rows').innerHTML=d.rows.map(r=>`<tr><td class="num">ppp${r.i}</td><td class="ltr">${r.user}</td><td>${r.uplink||'—'}</td><td class="num">${r.w}</td><td class="num">${r.exp}%</td><td class="num">${r.conns}</td><td class="num b">${r.act}%</td><td><div class="meter"><i style="width:${Math.min(r.act*2,100)}%"></i><b style="inset-inline-start:${Math.min(r.exp*2,100)}%"></b></div></td></tr>`).join('');}catch(e){}}
+setInterval(()=>{const t=document.querySelector('.tab.on');if(t&&(t.dataset.tab==='lbt'||t.dataset.tab==='ov'))lbtick()},10000);
+// ---------- الرسوم ----------
+const N=150,HIST={};function hist(k){return HIST[k]||(HIST[k]=[]);}function push(k,rx,tx){const h=hist(k);h.push([rx,tx]);if(h.length>N)h.shift();}
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function wdraw(id,h){const c=$(id);if(!c||!c.offsetParent)return;const dpr=window.devicePixelRatio||1,W=c.clientWidth*dpr,H=c.clientHeight*dpr;if(c.width!==W||c.height!==H){c.width=W;c.height=H;}
+const g=c.getContext('2d');g.clearRect(0,0,W,H);const sel=$('tscale').value;let m=1;for(const v of h)m=Math.max(m,v[0],v[1]);const sc=sel==='auto'?Math.max(1,Math.ceil(m*1.15/5)*5):parseFloat(sel);
+g.strokeStyle=css('--grid');g.lineWidth=dpr;for(let k=1;k<4;k++){const y=Math.round(H*k/4)+.5;g.beginPath();g.moveTo(0,y);g.lineTo(W,y);g.stroke();}
+const xs=i=>W-(h.length-1-i)*(W/(N-1));
+for(const [ix,col] of [[0,css('--rx')],[1,css('--tx')]]){if(h.length<2)break;g.beginPath();h.forEach((v,i)=>{const x=xs(i),y=H-Math.min(1,v[ix]/sc)*(H-4*dpr);i?g.lineTo(x,y):g.moveTo(x,y)});
+ const gr=g.createLinearGradient(0,0,0,H);gr.addColorStop(0,col+'55');gr.addColorStop(1,col+'05');g.lineWidth=1.8*dpr;g.strokeStyle=col;g.stroke();g.lineTo(xs(h.length-1),H);g.lineTo(xs(0),H);g.closePath();g.fillStyle=gr;g.fill();}
+g.fillStyle=css('--muted');g.font=(11*dpr)+'px sans-serif';g.textAlign='left';g.fillText(sc+' Mbps',6*dpr,13*dpr);g.fillText((sc/2)+'',6*dpr,H/2+4*dpr);}
+function box(l){return `<div class="m" id="b${l.i}"><div class="h"><b class="ltr">ppp${l.i} · ${l.user}</b><span id="v${l.i}" class="num"></span></div><canvas id="c${l.i}"></canvas></div>`;}
+function redraw(){wdraw('c_tot',hist('tot'));wdraw('c_lan',hist('lan'));document.querySelectorAll('#tg canvas').forEach(c=>wdraw(c.id,hist('l'+c.id.slice(1))));}
+async function ttick(){try{const d=await (await fetch('/api/traffic')).json();$('tts').textContent=d.ts;
+push('tot',d.total.down,d.total.up);$('t_rx').textContent=$('k_rx').textContent=$('h_rx').textContent=d.total.down;$('t_tx').textContent=$('k_tx').textContent=$('h_tx').textContent=d.total.up;
+if(d.lan){push('lan',d.lan.from_clients,d.lan.to_clients);$('l_rx').textContent=d.lan.from_clients;$('l_tx').textContent=d.lan.to_clients;}
+const tg=$('tg');for(const l of d.lines){if(!$('b'+l.i))tg.insertAdjacentHTML('beforeend',box(l));const v=$('v'+l.i);
+if(l.up){push('l'+l.i,l.down,l.upl);v.innerHTML=`<span class="tx">${l.upl}</span> / <span class="rx">${l.down}</span> Mbps`;}else{push('l'+l.i,0,0);v.innerHTML='<span class="off">غير متصل</span>';}}
+redraw();}catch(e){}}
+try{$('tscale').value=localStorage.getItem('mw_scale')||'auto'}catch(e){}
+ttick();setInterval(ttick,2000);window.addEventListener('resize',redraw);
 </script></body></html>'''
 
-EDIT = r'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تعديل خط</title>''' + CSS + r'''<style>input,select{width:300px}label{display:block;margin:10px 0}</style></head><body>
-<h2>تعديل الخط #{{i}}</h2><form method="post">
-<label>المستخدم<br><input name="user" value="{{l.user}}" required style="direction:ltr"></label>
-<label>كلمة السر<br><input name="pass" value="{{l.pass}}" required style="direction:ltr"></label>
-<label>الوزن<br><input name="weight" value="{{l.weight}}"></label>
-<label>MAC <span class="muted">(فارغ = تلقائي {{auto}})</span><br><input name="mac" value="{{l.mac}}" style="direction:ltr" placeholder="{{auto}}"></label>
-<label>المدخل<br><select name="uplink">{% for u in ups %}<option value="{{u.name}}" {% if l.uplink==u.name %}selected{% endif %}>{{u.name}} ({{u.iface}})</option>{% endfor %}</select></label>
-<button>حفظ وتطبيق</button> <a class="btn" href="/">رجوع</a></form></body></html>'''
+_PAGE_SIMPLE = lambda title_expr, body: (r'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>''' + title_expr + ''' — MultiWAN</title>''' + CSS + r'''</head><body>
+''' + _hdr("إدارة خطوط PPPoE", '<a class="btn ghost" href="/">' + icon("back") + 'رجوع للوحة</a>') + r'''<main style="max-width:1100px">''' + body + r'''</main>''' + TOAST + r'''</body></html>''')
 
-LOG = r'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>{{title}}</title>''' + CSS + r'''</head><body><h2>{{title}}</h2><a href="/">رجوع</a><pre>{{txt}}</pre></body></html>'''
+EDIT = _PAGE_SIMPLE("تعديل خط", r'''<div class="card" style="max-width:640px;margin:auto"><div class="hd"><h3>''' + icon("edit") + r'''تعديل الخط #{{i}}</h3></div><div class="bd">
+<form method="post"><div class="grid" style="grid-template-columns:1fr 1fr">
+<label class="f">المستخدم<input name="user" value="{{l.user}}" required class="ltr"></label>
+<label class="f">كلمة السر<input name="pass" value="{{l.pass}}" required class="ltr"></label>
+<label class="f">الوزن<input name="weight" value="{{l.weight}}" class="num"></label>
+<label class="f">المدخل<select name="uplink">{% for u in ups %}<option value="{{u.name}}" {% if l.uplink==u.name %}selected{% endif %}>{{u.name}} ({{u.iface}})</option>{% endfor %}</select></label>
+<label class="f" style="grid-column:1/-1"><span>MAC — فارغ = تلقائي <span class="ltr">{{auto}}</span></span><input name="mac" value="{{l.mac}}" class="ltr" placeholder="{{auto}}"></label>
+</div><div class="row" style="margin-top:16px"><button class="green">''' + icon("check") + r'''حفظ وتطبيق</button><a class="btn ghost" href="/#ln">إلغاء</a></div></form></div></div>''')
+
+LOG = _PAGE_SIMPLE("{{title}}", r'''<div class="card"><div class="hd"><h3>''' + icon("log") + r'''{{title}}</h3><span class="sp"></span><a class="btn ghost" href="javascript:location.reload()">''' + icon("restart") + r'''تحديث</a></div><div class="bd"><pre>{{txt}}</pre></div></div>''')
 
 # ---------------- routes ----------------
 @app.route("/")
