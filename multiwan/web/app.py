@@ -192,6 +192,41 @@ def usage_reset(users=None):  # None = تصفير الكل
             for i, (idx, rx, tx) in base.items(): f.write(f"{i} {idx} {rx} {tx}\n")
         os.replace(UBASE + ".tmp", UBASE)
 
+# ---------- توزيع الأحمال ----------
+LBSYSCTL = "/etc/sysctl.d/91-multiwan-lb.conf"
+LBMODES = {  # الوضع → (الوصف، sysctl)
+    "conn":   ("كل اتصال على حدة — أفضل توزيع (الافتراضي)", {"net.ipv4.fib_multipath_hash_policy": "1"}),
+    "client": ("كل عميل على خط واحد — أفضل توافق مع البنوك/الألعاب/الكابتشا", {"net.ipv4.fib_multipath_hash_policy": "3", "net.ipv4.fib_multipath_hash_fields": "0x0001"}),
+    "pair":   ("كل عميل+موقع على خط واحد — وسط بين الاثنين", {"net.ipv4.fib_multipath_hash_policy": "0"}),
+}
+def rd(p):
+    try: return open(p).read().strip()
+    except Exception: return ""
+def lb_mode():
+    pol = rd("/proc/sys/net/ipv4/fib_multipath_hash_policy")
+    if pol == "3" and int(rd("/proc/sys/net/ipv4/fib_multipath_hash_fields") or "0", 0) == 1: return "client"
+    return {"0": "pair", "1": "conn"}.get(pol, "conn")
+def set_lb_mode(m):
+    kv_ = LBMODES[m][1]
+    for k, v in kv_.items(): sh(f"sysctl -qw {k}={v}")
+    with open(LBSYSCTL, "w") as f: f.write("# طريقة توزيع الأحمال — من اللوحة\n" + "".join(f"{k}={v}\n" for k, v in kv_.items()))
+def lb_info():
+    lines, marks = read_lines(), {}
+    ct = subprocess.run(["conntrack", "-L", "-f", "ipv4"], capture_output=True, text=True) if sh("command -v conntrack") else None
+    if ct is not None:
+        for m in re.findall(r"mark=(\d+)", ct.stdout): marks[int(m)] = marks.get(int(m), 0) + 1
+    rows = []
+    for i, l in enumerate(lines):
+        if not os.path.exists(f"/sys/class/net/ppp{i}") or not sh(f"ip -4 -o addr show dev ppp{i}"): continue
+        w = int(l["weight"]) if str(l["weight"]).isdigit() else 1
+        rows.append({"i": i, "user": l["user"], "uplink": l["uplink"], "w": w, "conns": marks.get(100 + i, 0)})
+    tw, tc = sum(r["w"] for r in rows) or 1, sum(r["conns"] for r in rows)
+    for r in rows: r["exp"] = round(r["w"] * 100 / tw, 1); r["act"] = round(r["conns"] * 100 / tc, 1) if tc else 0
+    nh = sh("ip route show default").count("nexthop") or (1 if sh("ip route show default") else 0)
+    sticky = bool(sh("nft list table ip multiwan 2>/dev/null | head -1"))
+    return {"rows": rows, "total": tc, "untracked": sum(v for k, v in marks.items() if not 100 <= k < 356),
+            "ecmp": nh, "sticky": sticky, "ct": ct is not None, "mode": lb_mode()}
+
 def status():
     res = []; U, base = read_usage(), read_ubase()
     for i, l in enumerate(read_lines()):
@@ -321,6 +356,19 @@ PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
 <td><form class="inline" method="post" action="/usage-reset-all" onsubmit="return confirm('تصفير الإجمالي لكل المستخدمين؟')"><button class="orange">تصفير الكل</button></form></td></tr></tfoot></table>
 <p class="muted">الإجمالي = كل الجلسات منذ آخر تصفير (يبقى بعد انقطاع الخط وإعادة الاتصال). مرّر الماوس على الرقم لترى تاريخ التصفير.</p></div>
 
+<div class="card" id="lb"><h3>توزيع الأحمال</h3>
+<p>خطوط في المسار الموزّع (ECMP): <b id="lb_ecmp">{{lb.ecmp}}</b> &nbsp;|&nbsp; ثبات الاتصالات على خطها:
+{% if lb.sticky %}<span class="UP">مفعّل</span>{% else %}<span class="DOWN">غير مفعّل — نفّذ multiwan-update</span>{% endif %}
+&nbsp;|&nbsp; الاتصالات النشطة: <b id="lb_total">{{lb.total}}</b></p>
+{% if not lb.ct %}<p class="DOWN">أداة conntrack غير مثبتة — نفّذ: apt install conntrack (أو multiwan-update)</p>{% endif %}
+<table><thead><tr><th>الخط</th><th>المستخدم</th><th>المدخل</th><th>الوزن</th><th>المتوقع</th><th>الاتصالات</th><th>الفعلي</th><th style="width:30%"></th></tr></thead><tbody id="lb_rows">
+{% for r in lb.rows %}<tr><td>ppp{{r.i}}</td><td>{{r.user}}</td><td>{{r.uplink or '—'}}</td><td>{{r.w}}</td><td>{{r.exp}}%</td><td>{{r.conns}}</td><td>{{r.act}}%</td>
+<td><div style="background:#334155;border-radius:4px;height:10px;position:relative"><div style="background:#16a34a;height:10px;border-radius:4px;width:{{[r.act*2,100]|min}}%"></div><div style="position:absolute;top:-3px;height:16px;border-left:2px solid #f59e0b;left:{{[r.exp*2,100]|min}}%"></div></div></td></tr>{% endfor %}
+</tbody></table>
+<p class="muted">الشريط الأخضر = النسبة الفعلية، الخط البرتقالي = المتوقع حسب الوزن (المقياس ×2). التوزيع بعدد الاتصالات وليس بالسرعة، ويقترب من المتوقع كلما زاد عدد العملاء والاتصالات.</p>
+<form method="post" action="/lb-mode" class="inline">طريقة التوزيع: <select name="mode">{% for k, v in lbmodes.items() %}<option value="{{k}}" {% if lb.mode==k %}selected{% endif %}>{{v[0]}}</option>{% endfor %}</select> <button>حفظ</button></form>
+<p class="muted">"كل عميل على خط واحد" يمنع مشاكل المواقع التي ترفض تغيّر الـIP (بنوك، ألعاب، كابتشا)، لكن العميل الواحد لا يستفيد من أكثر من خط.</p></div>
+
 <div class="card" id="net"><h3>الشبكة — كرت الخروج للعملاء والإدارة</h3>
 <table><thead><tr><th></th><th>الكرت</th><th>Proxmox</th><th>IP</th><th>MAC</th><th>الحالة</th><th>استقبال</th><th>إرسال</th></tr></thead><tbody>
 {% for label, x in [('الخروج للعملاء (LAN)', net.lan), ('الإدارة', net.mgmt)] %}<tr><td><b>{{label}}</b></td><td>{{x.dev}}</td><td class="muted">{{x.note or '—'}}</td>
@@ -410,6 +458,9 @@ for(const k of ['ip','up','df','rx','tx','trx','ttx']){const e=tr.querySelector(
 for(const k of ['rx','tx','trx','ttx']){const e=document.getElementById('sum_'+k);if(e)e.textContent=hb(d.reduce((a,s)=>a+(s[k+'_b']||0),0));}
 document.getElementById('sum').textContent='الخطوط الشغّالة: '+up+' / '+d.length;}catch(e){}}
 refresh();setInterval(refresh,5000);
+async function lbtick(){try{const d=await (await fetch('/api/lb')).json();document.getElementById('lb_ecmp').textContent=d.ecmp;document.getElementById('lb_total').textContent=d.total;
+document.getElementById('lb_rows').innerHTML=d.rows.map(r=>`<tr><td>ppp${r.i}</td><td>${r.user}</td><td>${r.uplink||'—'}</td><td>${r.w}</td><td>${r.exp}%</td><td>${r.conns}</td><td>${r.act}%</td><td><div style="background:#334155;border-radius:4px;height:10px;position:relative"><div style="background:#16a34a;height:10px;border-radius:4px;width:${Math.min(r.act*2,100)}%"></div><div style="position:absolute;top:-3px;height:16px;border-left:2px solid #f59e0b;left:${Math.min(r.exp*2,100)}%"></div></div></td></tr>`).join('');}catch(e){}}
+setInterval(lbtick,10000);
 const N=120,HIST={};let ttimer=null;function hist(k){return HIST[k]||(HIST[k]=[]);}function push(k,rx,tx){const h=hist(k);h.push([rx,tx]);if(h.length>N)h.shift();}
 function wdraw(id,h){const c=document.getElementById(id);if(!c)return;const g=c.getContext('2d'),W=c.width,H=c.height;g.fillStyle='#fff';g.fillRect(0,0,W,H);
 const sel=document.getElementById('tscale').value;let m=1;for(const v of h)m=Math.max(m,v[0],v[1]);const sc=sel==='auto'?Math.max(1,Math.ceil(m/5)*5):parseFloat(sel);
@@ -448,11 +499,20 @@ def index():
             try: d = int(open(f"{STATE}/next-{i}").read()); nexts.append({"i": i, "user": l["user"], "left": fmt_dur(max(0, d - time.time()))})
             except Exception: nexts.append({"i": i, "user": l["user"], "left": "—"})
     return render_template_string(PAGE, st=status(), ups=uplinks(), free=free_ifaces(), res=read_csv5(RES), failed=read_failed(),
-                                  fo=fo_conf(), rc=rc, rc_state=rcs, nexts=nexts, net=net_info(), admin_user=creds()[0])
+                                  fo=fo_conf(), rc=rc, rc_state=rcs, nexts=nexts, net=net_info(), admin_user=creds()[0], lb=lb_info(), lbmodes=LBMODES)
 
 @app.route("/api/status")
 @auth
 def api_status(): return jsonify(status())
+@app.route("/api/lb")
+@auth
+def api_lb(): return jsonify(lb_info())
+@app.route("/lb-mode", methods=["POST"])
+@auth
+def lb_mode_set():
+    m = request.form.get("mode", "")
+    if m in LBMODES: set_lb_mode(m); flash("طريقة التوزيع: " + LBMODES[m][0] + " — تُطبَّق على الاتصالات الجديدة")
+    return redirect("/#lb")
 @app.route("/api/traffic")
 @auth
 def api_traffic(): return jsonify(traffic())

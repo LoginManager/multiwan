@@ -73,7 +73,7 @@ TMPROUTE=0; ip route show default | grep -q . || { ip route add default via $TMP
 # DNS مؤقت إن لم يكن الحل يعمل (الحزم تحتاجه فقط)
 getent hosts deb.debian.org >/dev/null 2>&1 || { rm -f /etc/resolv.conf; echo "nameserver ${DNS:-8.8.8.8}" > /etc/resolv.conf; }
 apt-get update -qq
-apt-get install -y -qq ppp nftables qemu-guest-agent python3-flask python3-openpyxl >/dev/null
+apt-get install -y -qq ppp nftables conntrack qemu-guest-agent python3-flask python3-openpyxl >/dev/null
 NEEDREBOOT=0
 if uname -r | grep -q cloud; then
   echo "==> الكيرنل cloud لا يدعم PPPoE — تثبيت linux-image-amd64"
@@ -100,6 +100,8 @@ install -m 644 $SRC/web/app.py /opt/multiwan/app.py
 install -m 644 $SRC/systemd/* /etc/systemd/system/
 
 # ---------- 5) NAT + sysctl ----------
+# pppN → mark 100+N (= جدول التوجيه 100+N في multiwan-route.sh)
+PPPMARKS=$(for i in $(seq 0 255); do echo "\"ppp$i\" : $((100+i))"; done | paste -sd, -)
 cat > /etc/nftables.conf <<EOF
 #!/usr/sbin/nft -f
 flush ruleset
@@ -107,6 +109,23 @@ table ip nat {
   chain postrouting {
     type nat hook postrouting priority 100; policy accept;
     oifname "ppp*" masquerade
+  }
+}
+# ثبات الاتصال على خطه: أول حزمة تختار الخط عبر ECMP، ثم يُعلَّم الاتصال (ct mark = 100+N)
+# وكل حزمه التالية من العملاء تُوجَّه بالعلامة لجدول نفس الخط — فلا تنقطع الاتصالات القائمة
+# عندما يتصل/ينقطع خط آخر ويُعاد بناء الـECMP
+table ip multiwan {
+  map ppp2mark {
+    type ifname : mark
+    elements = { $PPPMARKS }
+  }
+  chain prerouting {
+    type filter hook prerouting priority mangle; policy accept;
+    iifname "$LAN_IF" ct mark != 0 meta mark set ct mark
+  }
+  chain postrouting {
+    type filter hook postrouting priority mangle; policy accept;
+    oifname "ppp*" ct mark 0 ct mark set oifname map @ppp2mark
   }
 }
 table inet filter {
@@ -119,9 +138,11 @@ table inet filter {
   }
   chain forward {
     type filter hook forward priority 0; policy drop;
+    # MSS clamp قبل أي accept (وإلا لا يُطبَّق): PPPoE MTU 1492 → MSS ≤ 1452
+    oifname "ppp*" tcp flags & (syn|rst) == syn tcp option maxseg size set rt mtu
+    iifname "ppp*" tcp flags & (syn|rst) == syn tcp option maxseg size > 1452 tcp option maxseg size set 1452
     ct state established,related accept
     iifname "$LAN_IF" oifname "ppp*" accept
-    tcp flags syn tcp option maxseg size set rt mtu
   }
 }
 EOF
